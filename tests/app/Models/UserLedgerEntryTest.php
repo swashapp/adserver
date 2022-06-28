@@ -56,6 +56,29 @@ final class UserLedgerEntryTest extends TestCase
         self::assertEquals(260, UserLedgerEntry::getBonusBalanceForAllUsers());
     }
 
+    public function testAllWalletBalanceIfAny(): void
+    {
+        /** @var User $user */
+        $user1 = factory(User::class)->create();
+        $user1->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $user1->saveOrFail();
+        $this->createAllEntries($user1);
+        $user2 = factory(User::class)->create();
+        $user2->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $user2->saveOrFail();
+        // User2 has no any entires
+        $user3 = factory(User::class)->create();
+        $user3->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $user3->saveOrFail();
+        $this->createAllEntries($user3);
+        
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+
+        self::assertCount(2, $balances);
+        self::assertEquals(-315, $balances->where('wallet', $user1->name)
+                                           ->first()->share);
+    }
+
     public function testBalanceForDeletedUser(): void
     {
         /** @var User $user */
