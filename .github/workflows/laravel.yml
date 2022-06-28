@@ -1,4 +1,12 @@
 name: Laravel
+env:
+   APP_ENV: testing
+   APP_DEBUG: true
+   DB_HOST: 127.0.0.1
+   DB_PORT: 3306
+   DB_DATABASE: adserver_test
+   DB_USERNAME: travis
+   DB_PASSWORD: ""
 
 on:
 #  push:
@@ -26,14 +34,31 @@ jobs:
     steps:
     - uses: actions/checkout@v1
  
-    - name: Install composer dependencies
+    - name: before_install
       run: |
-        composer install --no-scripts
+          sudo add-apt-repository ppa:ondrej/php -y
+          sudo add-apt-repository ppa:adshares/releases -y
+          sudo apt-get update -q
+          sudo apt-get install libsodium-dev ads -y
+          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.$(lsb_release -cs)_amd64.deb && sudo apt install -y ./wkhtmltox_0.12.6-1.$(lsb_release -cs)_amd64.deb
+          yes | pecl install imagick
+          mkdir -p /tmp/ads/cache
+          chmod 777 -R /tmp/ads
+          phpenv config-add .travis/php.ini
+          composer self-update
+          cp .env.testing.dist .env.testing
+          mkdir -p storage/app/{invoices,public}
+          mkdir -p storage/framework/{sessions,views,cache}
+          chmod 777 -R storage
+          mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql mysql
  
-    - name: Prepare Laravel Application
+    - name: install
       run: |
-        cp .env.testing.dist .env
-        php artisan key:generate
+        yarn install && yarn run prod
+        composer install --no-interaction
+        mysql -e 'CREATE DATABASE IF NOT EXISTS adserver_test;'
+        mysql -e 'SET GLOBAL explicit_defaults_for_timestamp=1;'
+        php artisan migrate
  
     - name: Run Testsuite
-      run: vendor/bin/phpunit tests/
+      run: composer test-ci
