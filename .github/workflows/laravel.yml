@@ -44,7 +44,7 @@ jobs:
           mkdir -p /tmp/ads/cache
           chmod 777 -R /tmp/ads
     - run: curl -L https://raw.githubusercontent.com/phpenv/phpenv-installer/master/bin/phpenv-installer | bash      
-    - run: /home/runner/.phpenv config-add .travis/php.ini
+    - run: /home/runner/.phpenv/bin/phpenv config-add .travis/php.ini
     - run: |
           composer self-update
           cp .env.testing.dist .env.testing
