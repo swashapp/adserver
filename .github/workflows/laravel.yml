@@ -32,8 +32,6 @@ jobs:
  
     steps:
     - uses: actions/checkout@v1
-    - name: Verify user on the DB exists
-      run: mysql --host 127.0.0.1 --port 3306 --user=${{ env.DB_USERNAME }} --password=${{ env.DB_PASSWORD }} ${{env.DB_DATABASE}} -e "SHOW TABLES"
     - name: before_install
       run: |
           sudo add-apt-repository ppa:ondrej/php -y
