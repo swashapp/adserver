@@ -63,7 +63,7 @@ jobs:
           mkdir -p storage/framework/{sessions,views,cache}
           chmod 777 -R storage
           
-    - run: mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql mysql
+    - run: mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql --host 127.0.0.1 --port 3306 -uroot mysql
  
     - name: install
       run: |
