@@ -43,6 +43,7 @@ jobs:
     - run: |        
           mkdir -p /tmp/ads/cache
           chmod 777 -R /tmp/ads
+    - run: curl -L https://raw.githubusercontent.com/phpenv/phpenv-installer/master/bin/phpenv-installer | bash      
     - run: phpenv config-add .travis/php.ini
     - run: |
           composer self-update
