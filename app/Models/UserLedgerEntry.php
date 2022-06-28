@@ -203,7 +203,7 @@ class UserLedgerEntry extends Model
     {
         return (int)self::queryForEntriesRelevantForWalletBalance()
             ->selectRaw('user_id as uid, name as wallet, sum(amount) as share')
-            ->groupBy('uid', $userId)
+            ->groupBy('uid')
             ->having('share > 0')
             ->get();
     }
