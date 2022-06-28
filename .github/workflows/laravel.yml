@@ -32,8 +32,8 @@ jobs:
  
     steps:
     - uses: actions/checkout@v1
-    - name: Verify unittest DB exists
-      run: mysql --host 127.0.0.1 --port 3306 --user=${{ env.DB_USERNAME }} --password=${{ env.DB_PASSWORD }} -e "SHOW DATABASES"
+    - name: Verify user on the DB exists
+      run: mysql --host 127.0.0.1 --port 3306 --user=${{ env.DB_USERNAME }} --password=${{ env.DB_PASSWORD }} ${{env.MYSQL_DATABASE}} -e "SHOW TABLES"
     - name: before_install
       run: |
           sudo add-apt-repository ppa:ondrej/php -y
@@ -63,13 +63,13 @@ jobs:
           mkdir -p storage/framework/{sessions,views,cache}
           chmod 777 -R storage
           
-    - run: mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql --host 127.0.0.1 --port 3306 --user=${{ env.DB_USERNAME }} --password=${{ env.DB_PASSWORD }}  mysql
+    - run: mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql --host 127.0.0.1 --port 3306 --uroot mysql
  
     - name: install
       run: |
         yarn install && yarn run prod
         composer install --no-interaction
-    - run: mysql --host 127.0.0.1 --port 3306 --user=${{ env.DB_USERNAME }} --password=${{ env.DB_PASSWORD }} -e 'SET GLOBAL explicit_defaults_for_timestamp=1;'
+    - run: mysql --host 127.0.0.1 --port 3306 --uroot -e 'SET GLOBAL explicit_defaults_for_timestamp=1;'
     - run: php artisan migrate
  
     - name: Run Testsuite
