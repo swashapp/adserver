@@ -199,13 +199,13 @@ class UserLedgerEntry extends Model
             ->sum('amount');
     }
 
-    public static function allWalletBalanceIfAny(): int
+    public static function allWalletBalanceIfAny(): array
     {
-        return (int)self::queryForEntriesRelevantForWalletBalance()
-            ->selectRaw('user_id as uid, name as wallet, sum(amount) as share')
+        return self::queryForEntriesRelevantForWalletBalance()
+            ->selectRaw('users.id as uid, users.name as wallet, sum(amount) as share')
             ->groupBy('uid')
-            ->having('share > 0')
-            ->get();
+            ->having('share', '<>' , 0)
+            ->get()->toArray();
     }
 
     /**

@@ -58,25 +58,44 @@ final class UserLedgerEntryTest extends TestCase
 
     public function testAllWalletBalanceIfAny(): void
     {
-        /** @var User $user */
-        $user1 = factory(User::class)->create();
-        $user1->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
-        $user1->saveOrFail();
-        $this->createAllEntries($user1);
-        $user2 = factory(User::class)->create();
-        $user2->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
-        $user2->saveOrFail();
+        $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
+        $users[0]->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->saveOrFail();
+        $this->createAllEntries($users[0]);
+        $users[1]->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->saveOrFail();
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_AD_INCOME,
+                'amount' => 10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_WITHDRAWAL,
+                'amount' => -10,
+                'user_id' => $users[1]->id,
+            ]
+        );
         // User2 has no any entires
-        $user3 = factory(User::class)->create();
-        $user3->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
-        $user3->saveOrFail();
-        $this->createAllEntries($user3);
+        $users[2]->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->saveOrFail();
+        $this->createAllEntries($users[2]);
         
         $balances = UserLedgerEntry::allWalletBalanceIfAny();
-
         self::assertCount(2, $balances);
-        self::assertEquals(-315, $balances->where('wallet', $user1->name)
-                                           ->first()->share);
+        foreach ($balances as $entry) {
+            if($entry['wallet'] === $users[0]->name) {
+                self::assertEquals(-315, $entry['share']);
+            }
+            if($entry['wallet'] === $users[1]->name) {
+                self::assert(false);
+            }
+        }
     }
 
     public function testBalanceForDeletedUser(): void
