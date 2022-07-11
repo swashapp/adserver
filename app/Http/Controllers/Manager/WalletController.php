@@ -328,6 +328,71 @@ class WalletController extends Controller
         return $this->withdrawAds($request, $rpcClient);
     }
 
+    private function getADSWrappingAddress(): AccountId
+    {
+        // TODO add it in the config file.
+        try {
+            return new AccountId(config('app.adshares_wrapping_address'));
+        } catch (InvalidArgumentException $e) {
+            Log::error(sprintf('Invalid ADS address is set: %s', $e->getMessage()));
+            throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private function getADSWrappingMessage(): AccountId
+    {
+        // TODO add it in the config file.
+        try {
+            return new AccountId(config('app.adshares_wrapping_message'));
+        } catch (InvalidArgumentException $e) {
+            Log::error(sprintf('Invalid ADS address is set: %s', $e->getMessage()));
+            throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    public function withdrawBatchSwash(Request $request, AdsRpcClient $rpcClient): JsonResponse
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        if(!$user->isAdmin()){
+            return self::json(['Auth' => 'Only admin can run this API'], JsonResponse::HTTP_FORBIDDEN);
+        }
+
+        $addressFrom = $this->getAdServerAdsAddress();
+        $addressTo = $this->getADSWrappingAddress();
+        $message = $this->getADSWrappingMessage();
+        
+        $balanceTotal = UserLedgerEntry::getWalletBalanceForAllUsers();
+        $users_balances = UserLedgerEntry::allWalletBalanceIfAny();
+        
+
+        $amount = AdsUtils::calculateAmount($addressFrom, $addressTo, $balanceTotal);
+        $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
+        $total = $amount + $adsFee;
+
+        DB::beginTransaction();
+        
+        foreach ($users_balances as $ledgerItem) {
+            $ledgerEntry = UserLedgerEntry::construct(
+                $ledgerItem->uid,
+                -$ledgerItem->share,
+                UserLedgerEntry::STATUS_AWAITING_APPROVAL,
+                UserLedgerEntry::TYPE_WITHDRAWAL
+            )->addressed($addressFrom, $addressTo);
+
+            if (!$ledgerEntry->save()) {
+                DB::rollBack();
+                throw new InternalErrorException();
+            }
+        }
+        $command = new SendOneCommand($addressTo, $this->amount, $message);
+        $response = $adsClient->runTransaction($command);
+        DB::commit();
+
+        return self::json([], Response::HTTP_NO_CONTENT);
+    }
+
     private function withdrawAds(Request $request, AdsRpcClient $rpcClient): JsonResponse
     {
         /** @var User $user */
