@@ -32,6 +32,36 @@ use DateTimeImmutable;
 
 final class UserLedgerEntryTest extends TestCase
 {
+    public function testGetFirstRecordByBatchId(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(100, $ledgerEntry2->amount);
+        self::assertEquals(UserLedgerEntry::STATUS_PENDING, $ledgerEntry2->status);
+    }
+
+    public function testFailAllRecordsInBatch(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        UserLedgerEntry::failAllRecordsInBatch($batchId, UserLedgerEntry::STATUS_NET_ERROR);
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(UserLedgerEntry::STATUS_NET_ERROR, $ledgerEntry2->status);
+    }
+
+    public function testAcceptAllRecordsInBatch(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        $txid = '1234';
+        UserLedgerEntry::acceptAllRecordsInBatch($batchId, $txid);
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(UserLedgerEntry::STATUS_ACCEPTED, $ledgerEntry2->status);
+        self::assertEquals($txid, $ledgerEntry2->txid);
+    }
+
     public function testBalance(): void
     {
         /** @var User $user */
@@ -342,6 +372,25 @@ final class UserLedgerEntryTest extends TestCase
         self::assertEquals(0, $user2->getBalance());
         self::assertEquals(0, $user2->getWalletBalance());
         self::assertEquals(0, $user2->getBonusBalance());
+    }
+
+    private function createBatchEntries(string $batchId): void
+    {
+        $entries = [
+            100,
+            40,
+            1,
+            11,
+        ];    
+        foreach ($entries as $entry) {
+            $user = factory(User::class)->create();
+            UserLedgerEntry::constructSwash(
+                $batchId,
+                $user->id,
+                $entry
+            )->save();
+            
+        }
     }
 
     private function createSomeEntries(User $user): void

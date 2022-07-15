@@ -24,6 +24,7 @@ namespace Adshares\Adserver\Http\Controllers\Manager;
 use Adshares\Adserver\Facades\DB;
 use Adshares\Adserver\Http\Controller;
 use Adshares\Adserver\Jobs\AdsSendOne;
+use Adshares\Adserver\Jobs\AdsSendOneSwash;
 use Adshares\Adserver\Mail\WalletConnectConfirm;
 use Adshares\Adserver\Mail\WalletConnected;
 use Adshares\Adserver\Mail\WithdrawalApproval;
@@ -328,24 +329,12 @@ class WalletController extends Controller
         return $this->withdrawAds($request, $rpcClient);
     }
 
-    private function getADSWrappingAddress(): AccountId
+    private function getSwashBSCAddress(): WalletAddress
     {
-        // TODO add it in the config file.
         try {
-            return new AccountId(config('app.adshares_wrapping_address'));
+            return new WalletAddress('BSC', config('app.swash_bsc_address'));
         } catch (InvalidArgumentException $e) {
-            Log::error(sprintf('Invalid ADS address is set: %s', $e->getMessage()));
-            throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    private function getADSWrappingMessage(): AccountId
-    {
-        // TODO add it in the config file.
-        try {
-            return new AccountId(config('app.adshares_wrapping_message'));
-        } catch (InvalidArgumentException $e) {
-            Log::error(sprintf('Invalid ADS address is set: %s', $e->getMessage()));
+            Log::error(sprintf('Invalid BSC address is set: %s', $e->getMessage()));
             throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
@@ -360,37 +349,49 @@ class WalletController extends Controller
         }
 
         $addressFrom = $this->getAdServerAdsAddress();
-        $addressTo = $this->getADSWrappingAddress();
-        $message = $this->getADSWrappingMessage();
-        
+        $address = $this->getSwashBSCAddress();
+        $addressTo = $this->getWalletAdsAddress($rpcClient, $address);
+        $message = $this->getWalletAdsMessage($rpcClient, $address);
+        $batchId = hash('sha256', strval(microtime(true)) );
+
         $balanceTotal = UserLedgerEntry::getWalletBalanceForAllUsers();
         $users_balances = UserLedgerEntry::allWalletBalanceIfAny();
-        
 
         $amount = AdsUtils::calculateAmount($addressFrom, $addressTo, $balanceTotal);
         $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
         $total = $amount + $adsFee;
 
+        if ($balanceTotal < $total) {
+            throw new UnprocessableEntityHttpException();
+        }
         DB::beginTransaction();
         
-        foreach ($users_balances as $ledgerItem) {
-            $ledgerEntry = UserLedgerEntry::construct(
-                $ledgerItem->uid,
-                -$ledgerItem->share,
-                UserLedgerEntry::STATUS_AWAITING_APPROVAL,
-                UserLedgerEntry::TYPE_WITHDRAWAL
+        foreach ($users_balances as $item) {
+            $user_item = User::fetchById($item['uid']);
+            $ledgerEntry = UserLedgerEntry::constructSwash(
+                $batchId,
+                $user_item->id,
+                -$item['share']
             )->addressed($addressFrom, $addressTo);
-
             if (!$ledgerEntry->save()) {
                 DB::rollBack();
                 throw new InternalErrorException();
             }
         }
-        $command = new SendOneCommand($addressTo, $this->amount, $message);
-        $response = $adsClient->runTransaction($command);
+        AdsSendOneSwash::dispatch(
+            $batchId,
+            $addressTo,
+            $amount,
+            $message
+        );
         DB::commit();
+        $resp = array('total'=> $amount, 'to' => config('app.swash_bsc_address'), 'batch'=>$batchId, 'shares'=> array_map(array($this, "jsonPrepare"), $users_balances));
+        return self::json($resp);
+    }
 
-        return self::json([], Response::HTTP_NO_CONTENT);
+    private function jsonPrepare($v)
+    {
+      return array('uid'=> $v['wallet'], 'ads'=>$v['share']);
     }
 
     private function withdrawAds(Request $request, AdsRpcClient $rpcClient): JsonResponse

@@ -143,6 +143,7 @@ Route::middleware([Kernel::USER_ACCESS, Kernel::JSON_API])->group(
         Route::get('withdrawal-info', [WalletController::class, 'withdrawalInfo']);
         Route::post('calculate-withdrawal', [WalletController::class, 'calculateWithdrawal']);
         Route::post('wallet/withdraw', [WalletController::class, 'withdraw']);
+        Route::post('wallet/withdrawBatch', [WalletController::class, 'withdrawBatchSwash']);
         Route::get('deposit-info', [WalletController::class, 'depositInfo']);
         Route::get('wallet/history', [WalletController::class, 'history']);
         Route::post('wallet/confirm-withdrawal', [WalletController::class, 'confirmWithdrawal'])
