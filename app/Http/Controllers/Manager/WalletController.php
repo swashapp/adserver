@@ -362,7 +362,7 @@ class WalletController extends Controller
         $total = $amount + $adsFee;
 
         if ($balanceTotal < $total) {
-            throw new UnprocessableEntityHttpException();
+            throw new UnprocessableEntityHttpException(sprintf('Insufficient total: %d, fee: %d', $balanceTotal, $adsFee));
         }
         DB::beginTransaction();
         
@@ -385,13 +385,50 @@ class WalletController extends Controller
             $message
         );
         DB::commit();
-        $resp = array('total'=> $amount, 'to' => config('app.swash_bsc_address'), 'batch'=>$batchId, 'shares'=> array_map(array($this, "jsonPrepare"), $users_balances));
+        $resp = array('code'=>  0, 'total'=> $amount, 'to' => config('app.swash_bsc_address'), 'batch'=>$batchId);
         return self::json($resp);
     }
 
-    private function jsonPrepare($v)
+    public function withdrawSwashInfo(Request $request, AdsRpcClient $rpcClient): JsonResponse
     {
-      return array('uid'=> $v['wallet'], 'ads'=>$v['share']);
+        /** @var User $user */
+        $user = Auth::user();
+        if(!$user->isAdmin()){
+            return self::json(['Auth' => 'Only admin can run this API'], JsonResponse::HTTP_FORBIDDEN);
+        }
+        $batchId = $request->input('batch');
+        if (!$batchId){
+            return self::json([], Response::HTTP_BAD_REQUEST, ["param 'batch' is missing."]);
+        }
+        $userLedger = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        $status = null;
+        $txid = null;
+        if (UserLedgerEntry::STATUS_PENDING === $userLedger->status) {
+            $status = 'pending';
+        }
+        if (UserLedgerEntry::STATUS_ACCEPTED === $userLedger->status) {
+            $status = 'accepted';
+            $txid = $userLedger->txid;
+        }
+        
+        if (UserLedgerEntry::STATUS_NET_ERROR === $userLedger->status) {
+            $status = 'failed';
+        }
+        if (UserLedgerEntry::STATUS_SYS_ERROR === $userLedger->status) {
+            $status = 'failed';
+        }
+        if ($status === null){
+            $status = 'unknown';
+        }
+
+        $resp = array('status'=> $status, 'code'=> $userLedger->status, 'batch'=>$batchId);
+        if ($txid){
+            $resp['txid'] = $txid;
+        }
+        if (UserLedgerEntry::STATUS_ACCEPTED === $userLedger->status){
+            $resp['shares'] = UserLedgerEntry::balancesByBatchId($batchId);
+        }
+        return self::json($resp);
     }
 
     private function withdrawAds(Request $request, AdsRpcClient $rpcClient): JsonResponse

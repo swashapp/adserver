@@ -205,7 +205,15 @@ class UserLedgerEntry extends Model
         return self::queryForEntriesRelevantForWalletBalance()
             ->selectRaw('users.id as uid, users.name as wallet, sum(amount) as share')
             ->groupBy('uid')
-            ->having('share', '<>' , 0)
+            ->having('share', '>' , 0)
+            ->get()->toArray();            
+    }
+
+    public static function balancesByBatchId(string $batchId): array
+    {
+        return self::where('batchid', $batchId)
+            ->join('users', 'users.id', 'user_ledger_entries.user_id')->whereNull('users.deleted_at')
+            ->selectRaw('users.name as uid, (-1 * amount) as ads')
             ->get()->toArray();
     }
 

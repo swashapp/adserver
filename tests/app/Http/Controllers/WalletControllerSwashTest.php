@@ -24,25 +24,16 @@ declare(strict_types=1);
 
 namespace Adshares\Adserver\Tests\Http\Controllers;
 
-use Adshares\Adserver\Jobs\AdsSendOne;
-use Adshares\Adserver\Mail\WalletConnectConfirm;
-use Adshares\Adserver\Mail\WalletConnected;
-use Adshares\Adserver\Mail\WithdrawalApproval;
-use Adshares\Adserver\Models\Token;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\UserLedgerEntry;
 use Adshares\Adserver\Tests\TestCase;
 use Adshares\Common\Domain\ValueObject\WalletAddress;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Symfony\Component\HttpFoundation\Response;
 
 class WalletControllerSwashTest extends TestCase
 {
-    private const CONNECT_INIT_URI = '/api/wallet/connect/init';
-    private const CONNECT_URI = '/api/wallet/connect';
-    private const CONNECT_CONFIRM_URI = '/api/wallet/connect/confirm';
 
     public function testWithdrawSwash(): void
     {
@@ -60,7 +51,7 @@ class WalletControllerSwashTest extends TestCase
         $user->saveOrFail();
         $this->actingAs($user, 'api');
 
-        $response = $this->postJson('/api/wallet/withdrawBatch');
+        $response = $this->postJson('/api/withdraw-swash');
         $response->assertStatus(Response::HTTP_OK);
         $response->assertJson(['to' => config('app.swash_bsc_address'), 'total' => 151924038]);
         $json = $response->decodeResponseJson();
@@ -68,11 +59,89 @@ class WalletControllerSwashTest extends TestCase
         $this->assertEquals(0, UserLedgerEntry::getWalletBalanceForAllUsers());
         $this->assertNotNull($userLedgerEntry);
         $this->assertEquals(UserLedgerEntry::STATUS_PENDING, $userLedgerEntry->status);
-        foreach ($json['shares'] as $item) {
+    }
+
+    public function testWithdrawSwashInfoSuccess(): void
+    {
+        Mail::fake();
+        Queue::fake();
+        $this->createSwashEntries();
+
+        $user = factory(User::class)->create([
+            'email_confirmed_at' => now(),
+            'admin_confirmed_at' => now(),
+            'email' => null,
+            'wallet_address' => new WalletAddress(WalletAddress::NETWORK_ADS, '0001-00000001-8B4E')
+        ]);
+        $user->is_admin = true;
+        $user->saveOrFail();
+        $this->actingAs($user, 'api');
+
+        $response = $this->postJson('/api/withdraw-swash');
+        $response->assertStatus(Response::HTTP_OK);
+        $json = $response->decodeResponseJson();
+        $this->actingAs($user, 'api');
+        $response = $this->getJson('/api/withdraw-swash-info');
+        $response->assertStatus(Response::HTTP_BAD_REQUEST);
+
+        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response->assertStatus(Response::HTTP_OK);
+        $json2 = $response->decodeResponseJson();
+        $this->assertEquals(1, $json2['code']);
+        $this->assertEquals('pending', $json2['status']);
+        $txid = '1234';
+        UserLedgerEntry::acceptAllRecordsInBatch($json['batch'], $txid);
+
+        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response->assertStatus(Response::HTTP_OK);
+        $json2 = $response->decodeResponseJson();
+        $this->assertEquals(0, $json2['code']);
+        $this->assertEquals($txid, $json2['txid']);
+        $this->assertEquals('accepted', $json2['status']);
+        $userLedgerEntry = UserLedgerEntry::getFirstRecordByBatchId($json['batch']);
+        foreach ($json2['shares'] as $item) {
             if($item['uid'] === $userLedgerEntry->user->name){
                 $this->assertEquals($item['ads'], $userLedgerEntry->amount * -1);
             }
         }
+        $response = $this->postJson('/api/withdraw-swash');
+        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+    }
+
+    public function testWithdrawSwashInfoFail(): void
+    {
+        Mail::fake();
+        Queue::fake();
+        $this->createSwashEntries();
+
+        $user = factory(User::class)->create([
+            'email_confirmed_at' => now(),
+            'admin_confirmed_at' => now(),
+            'email' => null,
+            'wallet_address' => new WalletAddress(WalletAddress::NETWORK_ADS, '0001-00000001-8B4E')
+        ]);
+        $user->is_admin = true;
+        $user->saveOrFail();
+        $this->actingAs($user, 'api');
+
+        $response = $this->postJson('/api/withdraw-swash');
+        $response->assertStatus(Response::HTTP_OK);
+        $json = $response->decodeResponseJson();
+        
+        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response->assertStatus(Response::HTTP_OK);
+        $json2 = $response->decodeResponseJson();
+        $this->assertEquals(1, $json2['code']);
+        $this->assertEquals('pending', $json2['status']);
+        UserLedgerEntry::failAllRecordsInBatch($json['batch'], UserLedgerEntry::STATUS_NET_ERROR);
+
+        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response->assertStatus(Response::HTTP_OK);
+        $json2 = $response->decodeResponseJson();
+        $this->assertEquals(UserLedgerEntry::STATUS_NET_ERROR, $json2['code']);
+        $this->assertEquals('failed', $json2['status']);
+        $response = $this->postJson('/api/withdraw-swash');
+        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 
     private function generateUserIncome(int $userId, int $amount): void
