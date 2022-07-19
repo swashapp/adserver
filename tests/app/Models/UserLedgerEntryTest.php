@@ -71,17 +71,17 @@ final class UserLedgerEntryTest extends TestCase
         $balances = UserLedgerEntry::balancesByBatchId($batchId);
         
         self::assertCount(4, $balances);
-        self::assertEquals('username', $balances[0]['uid']);
+        self::assertEquals('0x0002D752001721d43d8F04AC4FDfb7aE2784E001', $balances[0]['uid']);
         self::assertEquals(100, $balances[0]['ads']);
     }
     
     public function testAllWalletBalanceIfAny(): void
     {
         $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
-        $users[0]->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[0]->saveOrFail();
         $this->createSomeEntries($users[0]);
-        $users[1]->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[1]->saveOrFail();
         factory(UserLedgerEntry::class)->create(
             [
@@ -101,17 +101,17 @@ final class UserLedgerEntryTest extends TestCase
             ]
         );
         // User2 has no any entires
-        $users[2]->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[2]->saveOrFail();
         $this->createSomeEntries($users[2]);
         
         $balances = UserLedgerEntry::allWalletBalanceIfAny();
         self::assertCount(2, $balances);
         foreach ($balances as $entry) {
-            if($entry['wallet'] === $users[0]->name) {
+            if($entry['wallet'] === $users[0]->swash_wallet_address) {
                 self::assertEquals(50, $entry['share']);
             }
-            if($entry['wallet'] === $users[1]->name) {
+            if($entry['wallet'] === $users[1]->swash_wallet_address) {
                 self::assertEquals(false, true);
             }
         }
@@ -121,10 +121,10 @@ final class UserLedgerEntryTest extends TestCase
     {
         $batchId = hash('sha256', strval(microtime(true)) );
         $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
-        $users[0]->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[0]->saveOrFail();
         $this->createAllEntries($users[0]);
-        $users[1]->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[1]->saveOrFail();
         factory(UserLedgerEntry::class)->create(
             [
@@ -144,7 +144,7 @@ final class UserLedgerEntryTest extends TestCase
             ]
         );
         // User2 has no any entires
-        $users[2]->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[2]->saveOrFail();
         $this->createAllEntries($users[2]);
         
@@ -153,7 +153,7 @@ final class UserLedgerEntryTest extends TestCase
         foreach ($balances as $entry) {
             $user = null;
             foreach ($users as $uItem) {
-                if($uItem->name === $entry['wallet']){
+                if($uItem->swash_wallet_address === $entry['wallet']){
                     $user = $uItem;
                 }
             }
@@ -175,10 +175,10 @@ final class UserLedgerEntryTest extends TestCase
     {
         $batchId = hash('sha256', strval(microtime(true)) );
         $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
-        $users[0]->name = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[0]->saveOrFail();
         $this->createAllEntries($users[0]);
-        $users[1]->name = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[1]->saveOrFail();
         factory(UserLedgerEntry::class)->create(
             [
@@ -198,7 +198,7 @@ final class UserLedgerEntryTest extends TestCase
             ]
         );
         // User2 has no any entires
-        $users[2]->name = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[2]->saveOrFail();
         $this->createAllEntries($users[2]);
         
@@ -207,7 +207,7 @@ final class UserLedgerEntryTest extends TestCase
         foreach ($balances as $entry) {
             $user = null;
             foreach ($users as $uItem) {
-                if($uItem->name === $entry['wallet']){
+                if($uItem->swash_wallet_address === $entry['wallet']){
                     $user = $uItem;
                 }
             }
@@ -502,10 +502,12 @@ final class UserLedgerEntryTest extends TestCase
             40,
             1,
             11,
-        ];    
+        ];
+        $row = 0;
         foreach ($entries as $entry) {
+            $row = $row + 1;
             $user = factory(User::class)->create();
-            $user->name = 'username';
+            $user->swash_wallet_address = sprintf('0x0002D752001721d43d8F04AC4FDfb7aE2784E%03d', $row);
             $user->save();
             UserLedgerEntry::constructSwash(
                 $batchId,

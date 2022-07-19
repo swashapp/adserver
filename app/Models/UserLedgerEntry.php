@@ -203,7 +203,7 @@ class UserLedgerEntry extends Model
     public static function allWalletBalanceIfAny(): array
     {
         return self::queryForEntriesRelevantForWalletBalance()
-            ->selectRaw('users.id as uid, users.name as wallet, sum(amount) as share')
+            ->selectRaw('users.id as uid, users.swash_wallet_address as wallet, sum(amount) as share')
             ->groupBy('uid')
             ->having('share', '>' , 0)
             ->get()->toArray();            
@@ -213,7 +213,7 @@ class UserLedgerEntry extends Model
     {
         return self::where('batchid', $batchId)
             ->join('users', 'users.id', 'user_ledger_entries.user_id')->whereNull('users.deleted_at')
-            ->selectRaw('users.name as uid, (-1 * amount) as ads')
+            ->selectRaw('users.swash_wallet_address as uid, (-1 * amount) as ads')
             ->get()->toArray();
     }
 
