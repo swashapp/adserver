@@ -30,6 +30,7 @@ Route::middleware([Kernel::JSON_API])->group(function () {
     Route::get('login/wallet/init', [AuthController::class, 'walletLoginInit']);
     Route::post('login/wallet', [AuthController::class, 'walletLogin']);
     Route::post('email/activate', [AuthController::class, 'emailActivate']);
+    Route::post('swash-register', [AuthController::class, 'swashRegister']);
 });
 
 Route::middleware([Kernel::USER_ACCESS, Kernel::JSON_API])->group(function () {

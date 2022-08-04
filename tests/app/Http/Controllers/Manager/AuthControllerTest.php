@@ -976,6 +976,45 @@ class AuthControllerTest extends TestCase
         $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 
+    public function testRegisterSwash(): void
+    {
+
+        // Non Exists
+        /** @var User $user */
+        $rnd = User::generateRandomETHWalletForSwash();
+
+        $response = $this->postJson(
+            '/auth/swash-register',
+            [
+                'address' => $rnd,
+            ]
+        );
+        $response->assertStatus(Response::HTTP_OK);
+        $response->assertJsonStructure([
+            'sAdId'
+        ]);
+        $sadId = $response->json()['sAdId'];
+
+        $u = User::fetchBySwashWalletAddress($rnd);
+        $this->assertEquals($sadId, $u->wallet_address);
+        // Exists
+        /** @var User $user */
+        
+        $response = $this->postJson(
+            '/auth/swash-register',
+            [
+                'address' => $rnd,
+            ]
+        );
+
+        $response->assertStatus(Response::HTTP_OK);
+        $response->assertJsonStructure([
+            'sAdId'
+        ]);
+        
+        $this->assertEquals($sadId, $response->json()['sAdId']);
+    }
+
     private function registerUser(?string $referralToken = null, int $status = Response::HTTP_CREATED): ?User
     {
         $email = $this->faker->unique()->email;

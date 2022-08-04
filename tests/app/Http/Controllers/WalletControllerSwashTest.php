@@ -171,7 +171,7 @@ class WalletControllerSwashTest extends TestCase
         ];    
         foreach ($entries as $entry) {
             $user = factory(User::class)->create();
-            $user->name = $entry[0];
+            $user->swash_wallet_address = $entry[0];
             $user->save();
             $this->generateUserIncome($user->id, $entry[1]);
         }

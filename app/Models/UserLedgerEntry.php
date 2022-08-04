@@ -203,6 +203,7 @@ class UserLedgerEntry extends Model
     public static function allWalletBalanceIfAny(): array
     {
         return self::queryForEntriesRelevantForWalletBalance()
+            ->whereNotNull('users.swash_wallet_address')
             ->selectRaw('users.id as uid, users.swash_wallet_address as wallet, sum(amount) as share')
             ->groupBy('uid')
             ->having('share', '>' , 0)

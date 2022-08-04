@@ -393,8 +393,8 @@ class WalletController extends Controller
     {
         /** @var User $user */
         $user = Auth::user();
-        if(!$user->isAdmin()){
-            return self::json(['Auth' => 'Only admin can run this API'], JsonResponse::HTTP_FORBIDDEN);
+        if(!$user->isModerator()){
+            return self::json(['Auth' => 'Only Moderator/Admin can run this API'], JsonResponse::HTTP_FORBIDDEN);
         }
         $batchId = $request->input('batch');
         if (!$batchId){
