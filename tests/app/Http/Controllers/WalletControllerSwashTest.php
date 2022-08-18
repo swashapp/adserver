@@ -25,6 +25,7 @@ declare(strict_types=1);
 namespace Adshares\Adserver\Tests\Http\Controllers;
 
 use Adshares\Adserver\Models\User;
+use Adshares\Adserver\Jobs\AdsSendOneSwash;
 use Adshares\Adserver\Models\UserLedgerEntry;
 use Adshares\Adserver\Tests\TestCase;
 use Adshares\Common\Domain\ValueObject\WalletAddress;

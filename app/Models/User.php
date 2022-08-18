@@ -472,9 +472,9 @@ class User extends Authenticatable
     }
 
     public static function generateRandomETHWalletForSwash(): string {
-        // An eth address contains 40 hexadecimals. I use a 15 zeros prefix, and 25 random hex chars.
+        // An eth address contains 40 hexadecimals. I use 40 random hex chars.
         // At the moment I don't use the db, but in the future we may use users count, ...
 
-        return '0x000000000000000' . substr( hash('sha256', strval(rand(1,1000000) * microtime(true)) ), 0, 25); 
+        return '0x' . substr( hash('sha256', strval(rand(1,1000000) * microtime(true)) ), 0, 40); 
     }
 }

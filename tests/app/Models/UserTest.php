@@ -114,7 +114,6 @@ class UserTest extends TestCase
         $rnd = User::generateRandomETHWalletForSwash();
         $rnd2 = User::generateRandomETHWalletForSwash();
         $this->assertEquals(42, strlen($rnd));
-        $this->assertEquals('0x000000000000000', substr($rnd,0, 17));
         $this->assertNotEquals($rnd, $rnd2);
     }
 }

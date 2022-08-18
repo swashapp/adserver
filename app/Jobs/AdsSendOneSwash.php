@@ -96,6 +96,9 @@ class AdsSendOneSwash implements ShouldQueue
     public function handle(AdsClient $adsClient): void
     {
         $userLedger = UserLedgerEntry::getFirstRecordByBatchId($this->batchId);
+        if (!$userLedger){
+            return;
+        }
         if (UserLedgerEntry::STATUS_PENDING !== $userLedger->status) {
             return;
         }

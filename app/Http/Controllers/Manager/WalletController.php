@@ -378,13 +378,16 @@ class WalletController extends Controller
                 throw new InternalErrorException();
             }
         }
+        DB::commit();
+        $logMessage = '[WalletController] Dispatching AdsSendOneSwash with batchId (%s) addressTo (%s) amount (%s) message (%s) users_balances (%s).';
+        Log::info(sprintf($logMessage, $batchId, $addressTo, $amount, $message, json_encode($users_balances)));
         AdsSendOneSwash::dispatch(
             $batchId,
             $addressTo,
             $amount,
             $message
         );
-        DB::commit();
+        
         $resp = array('code'=>  0, 'total'=> $amount, 'to' => config('app.swash_bsc_address'), 'batch'=>$batchId);
         return self::json($resp);
     }
@@ -401,6 +404,9 @@ class WalletController extends Controller
             return self::json([], Response::HTTP_BAD_REQUEST, ["param 'batch' is missing."]);
         }
         $userLedger = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        if (!$userLedger){
+            return self::json([], Response::HTTP_BAD_REQUEST, ["invalid 'batchId'. No record is found."]);
+        }
         $status = null;
         $txid = null;
         if (UserLedgerEntry::STATUS_PENDING === $userLedger->status) {

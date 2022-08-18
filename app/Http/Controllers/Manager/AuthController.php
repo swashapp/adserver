@@ -439,7 +439,7 @@ MSG;
             $user->saveOrFail();
             DB::commit();
         }
-        return response()->json(['sAd-id' => $user->wallet_address->toString()]);
+        return response()->json(['sAdId' => $user->wallet_address->toString()]);
     }
 
     public function logout(): JsonResponse
