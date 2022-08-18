@@ -329,10 +329,10 @@ class WalletController extends Controller
         return $this->withdrawAds($request, $rpcClient);
     }
 
-    private function getSwashBSCAddress(): WalletAddress
+    private function getSwashVaultBSCAddress(): WalletAddress
     {
         try {
-            return new WalletAddress('BSC', config('app.swash_bsc_address'));
+            return new WalletAddress('BSC', config('app.svault_bsc_address'));
         } catch (InvalidArgumentException $e) {
             Log::error(sprintf('Invalid BSC address is set: %s', $e->getMessage()));
             throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
@@ -349,7 +349,7 @@ class WalletController extends Controller
         }
 
         $addressFrom = $this->getAdServerAdsAddress();
-        $address = $this->getSwashBSCAddress();
+        $address = $this->getSwashVaultBSCAddress();
         $addressTo = $this->getWalletAdsAddress($rpcClient, $address);
         $message = $this->getWalletAdsMessage($rpcClient, $address);
         $batchId = hash('sha256', strval(microtime(true)) );
@@ -388,7 +388,7 @@ class WalletController extends Controller
             $message
         );
         
-        $resp = array('code'=>  0, 'total'=> $amount, 'to' => config('app.swash_bsc_address'), 'batch'=>$batchId);
+        $resp = array('code'=>  0, 'total'=> $amount, 'to' => config('app.svault_bsc_address'), 'batch'=>$batchId);
         return self::json($resp);
     }
 

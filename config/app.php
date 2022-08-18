@@ -103,7 +103,7 @@ return [
     'adshares_operator_email' => env('ADSHARES_OPERATOR_EMAIL'),
     'adshares_node_host' => env('ADSHARES_NODE_HOST'),
     'adshares_node_port' => env('ADSHARES_NODE_PORT'),
-    'swash_bsc_address' => env('SWASH_BSC_ADDRESS'),
+    'svault_bsc_address' => env('SVAULT_BSC_ADDRESS'),
     'adshares_secret' => env('ADSHARES_SECRET'),
     'adshares_command' => env('ADSHARES_COMMAND'),
     'adshares_workingdir' => env('ADSHARES_WORKINGDIR'),

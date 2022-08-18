@@ -40,6 +40,11 @@ final class UserLedgerEntryTest extends TestCase
         $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
         self::assertEquals(-100, $ledgerEntry2->amount);
         self::assertEquals(UserLedgerEntry::STATUS_PENDING, $ledgerEntry2->status);
+
+        $batchId = 'and Invalid Batch Id';
+        
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertNull($ledgerEntry2);
     }
 
     public function testFailAllRecordsInBatch(): void

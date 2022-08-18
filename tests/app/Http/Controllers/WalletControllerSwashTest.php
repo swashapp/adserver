@@ -54,7 +54,7 @@ class WalletControllerSwashTest extends TestCase
 
         $response = $this->postJson('/api/withdraw-swash');
         $response->assertStatus(Response::HTTP_OK);
-        $response->assertJson(['to' => config('app.swash_bsc_address'), 'total' => 151924038]);
+        $response->assertJson(['to' => config('app.svault_bsc_address'), 'total' => 151924038]);
         $json = $response->decodeResponseJson();
         $userLedgerEntry = UserLedgerEntry::getFirstRecordByBatchId($json['batch']);
         $this->assertEquals(0, UserLedgerEntry::getWalletBalanceForAllUsers());
