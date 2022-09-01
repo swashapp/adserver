@@ -352,10 +352,15 @@ class WalletController extends Controller
         $address = $this->getSwashVaultBSCAddress();
         $addressTo = $this->getWalletAdsAddress($rpcClient, $address);
         $message = $this->getWalletAdsMessage($rpcClient, $address);
-        $batchId = hash('sha256', strval(microtime(true)) );
+        $batchId = hash('sha256', strval(rand(1,1000000) *  microtime(true)) );
 
-        $balanceTotal = UserLedgerEntry::getWalletBalanceForAllUsers();
+        $balanceTotal = UserLedgerEntry::getWalletBalanceForSwashUsers();
         $users_balances = UserLedgerEntry::allWalletBalanceIfAny();
+
+        if($balanceTotal ==0){
+            $resp = array('code'=>  9, 'total'=> $balanceTotal, 'msg' => 'No income for Swash users.');
+            return self::json($resp);
+        }
 
         $amount = AdsUtils::calculateAmount($addressFrom, $addressTo, $balanceTotal);
         $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
@@ -379,7 +384,7 @@ class WalletController extends Controller
             }
         }
         DB::commit();
-        $logMessage = '[WalletController] Dispatching AdsSendOneSwash with batchId (%s) addressTo (%s) amount (%s) message (%s) users_balances (%s).';
+        $logMessage = '[WalletController] Swash: Dispatching AdsSendOneSwash with batchId (%s) addressTo (%s) amount (%s) message (%s) users_balances (%s).';
         Log::info(sprintf($logMessage, $batchId, $addressTo, $amount, $message, json_encode($users_balances)));
         AdsSendOneSwash::dispatch(
             $batchId,
@@ -388,7 +393,7 @@ class WalletController extends Controller
             $message
         );
         
-        $resp = array('code'=>  0, 'total'=> $amount, 'to' => config('app.svault_bsc_address'), 'batch'=>$batchId);
+        $resp = array('code'=>  0, 'msg' => 'Withdrawal request is submitted successfully.', 'total'=> $amount, 'usersCount' => count($users_balances), 'to' => config('app.svault_bsc_address'), 'batch'=>$batchId);
         return self::json($resp);
     }
 

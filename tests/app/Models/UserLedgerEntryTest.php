@@ -82,12 +82,19 @@ final class UserLedgerEntryTest extends TestCase
     
     public function testAllWalletBalanceIfAny(): void
     {
-        $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
+        $users = array(
+            factory(User::class)->create(),
+            factory(User::class)->create(),
+            factory(User::class)->create(),
+            factory(User::class)->create());
         $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[0]->saveOrFail();
         $this->createSomeEntries($users[0]);
+        
+        // User[1] has no any entires. sum is zero
         $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[1]->saveOrFail();
+        
         factory(UserLedgerEntry::class)->create(
             [
                 'status' => UserLedgerEntry::STATUS_ACCEPTED,
@@ -105,12 +112,19 @@ final class UserLedgerEntryTest extends TestCase
                 'user_id' => $users[1]->id,
             ]
         );
-        // User2 has no any entires
+
+        // User[2]
         $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
         $users[2]->saveOrFail();
         $this->createSomeEntries($users[2]);
-        
+        // User3 has entires, but its not a swash user
+        $this->createSomeEntries($users[3]);
+
+        $total = UserLedgerEntry::getWalletBalanceForSwashUsers();
         $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        self::assertTrue($total < UserLedgerEntry::getWalletBalanceForAllUsers());
+        // user[3] is not a swash user. its balance should affect getWalletBalanceForAllUsers, but not getWalletBalanceForSwashUsers
+
         self::assertCount(2, $balances);
         foreach ($balances as $entry) {
             if($entry['wallet'] === $users[0]->swash_wallet_address) {

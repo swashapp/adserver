@@ -52,7 +52,7 @@ class WalletControllerSwashTest extends TestCase
         $user->saveOrFail();
         $this->actingAs($user, 'api');
 
-        $response = $this->postJson('/api/withdraw-swash');
+        $response = $this->postJson('/api/withdraw-swash-request');
         $response->assertStatus(Response::HTTP_OK);
         $response->assertJson(['to' => config('app.svault_bsc_address'), 'total' => 151924038]);
         $json = $response->decodeResponseJson();
@@ -78,14 +78,14 @@ class WalletControllerSwashTest extends TestCase
         $user->saveOrFail();
         $this->actingAs($user, 'api');
 
-        $response = $this->postJson('/api/withdraw-swash');
+        $response = $this->postJson('/api/withdraw-swash-request');
         $response->assertStatus(Response::HTTP_OK);
         $json = $response->decodeResponseJson();
         $this->actingAs($user, 'api');
-        $response = $this->getJson('/api/withdraw-swash-info');
+        $response = $this->getJson('/api/withdraw-swash-status');
         $response->assertStatus(Response::HTTP_BAD_REQUEST);
 
-        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response = $this->getJson('/api/withdraw-swash-status?batch='. $json['batch']);
         $response->assertStatus(Response::HTTP_OK);
         $json2 = $response->decodeResponseJson();
         $this->assertEquals(1, $json2['code']);
@@ -93,7 +93,7 @@ class WalletControllerSwashTest extends TestCase
         $txid = '1234';
         UserLedgerEntry::acceptAllRecordsInBatch($json['batch'], $txid);
 
-        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response = $this->getJson('/api/withdraw-swash-status?batch='. $json['batch']);
         $response->assertStatus(Response::HTTP_OK);
         $json2 = $response->decodeResponseJson();
         $this->assertEquals(0, $json2['code']);
@@ -105,8 +105,11 @@ class WalletControllerSwashTest extends TestCase
                 $this->assertEquals($item['ads'], $userLedgerEntry->amount * -1);
             }
         }
-        $response = $this->postJson('/api/withdraw-swash');
-        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+        $response = $this->postJson('/api/withdraw-swash-request');
+        $response->assertStatus(Response::HTTP_OK);
+        $json3 = $response->decodeResponseJson();
+        $this->assertEquals(0, $json3['total']);
+        $this->assertEquals(9, $json3['code']);
     }
 
     public function testWithdrawSwashInfoFail(): void
@@ -125,24 +128,27 @@ class WalletControllerSwashTest extends TestCase
         $user->saveOrFail();
         $this->actingAs($user, 'api');
 
-        $response = $this->postJson('/api/withdraw-swash');
+        $response = $this->postJson('/api/withdraw-swash-request');
         $response->assertStatus(Response::HTTP_OK);
         $json = $response->decodeResponseJson();
         
-        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response = $this->getJson('/api/withdraw-swash-status?batch='. $json['batch']);
         $response->assertStatus(Response::HTTP_OK);
         $json2 = $response->decodeResponseJson();
         $this->assertEquals(1, $json2['code']);
         $this->assertEquals('pending', $json2['status']);
         UserLedgerEntry::failAllRecordsInBatch($json['batch'], UserLedgerEntry::STATUS_NET_ERROR);
 
-        $response = $this->getJson('/api/withdraw-swash-info?batch='. $json['batch']);
+        $response = $this->getJson('/api/withdraw-swash-status?batch='. $json['batch']);
         $response->assertStatus(Response::HTTP_OK);
         $json2 = $response->decodeResponseJson();
         $this->assertEquals(UserLedgerEntry::STATUS_NET_ERROR, $json2['code']);
         $this->assertEquals('failed', $json2['status']);
-        $response = $this->postJson('/api/withdraw-swash');
-        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+        $response = $this->postJson('/api/withdraw-swash-request');
+        $response->assertStatus(Response::HTTP_OK);
+        $json3 = $response->decodeResponseJson();
+        $this->assertEquals(0, $json3['total']);
+        $this->assertEquals(9, $json3['code']);
     }
 
     private function generateUserIncome(int $userId, int $amount): void

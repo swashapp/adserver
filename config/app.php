@@ -22,15 +22,18 @@ use Illuminate\Support\Facades\Log;
  */
 
 $appUrl = env('APP_URL', 'http://localhost');
-$appEnv = env('APP_ENV', 'production');
+$appEnv = env('APP_ENV', 'production'); # for testing ==> $ export APP_ENV=testing
 $aduserUrl = env('ADUSER_BASE_URL', env('ADUSER_INTERNAL_LOCATION', env('ADUSER_EXTERNAL_LOCATION')));
 
-try {
-    new WalletAddress('BSC', env('SVAULT_BSC_ADDRESS'));
-} catch (InvalidArgumentException $e) {
-    Log::error(sprintf('Invalid BSC address is set: %s', $e->getMessage()));
-    throw new Exception('invalid svault_bsc_address');
+if( $appEnv === 'production' ){
+    try {
+        new WalletAddress('BSC', env('SVAULT_BSC_ADDRESS'));
+    } catch (InvalidArgumentException $e) {
+        Log::error(sprintf('Invalid BSC address is set: %s', $e->getMessage()));
+        throw new Exception('invalid svault_bsc_address');
+    }
 }
+
 
 return [
     'name' => env('APP_NAME', 'AdServer'),

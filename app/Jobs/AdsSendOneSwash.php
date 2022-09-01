@@ -42,6 +42,7 @@ class AdsSendOneSwash implements ShouldQueue
     use SerializesModels;
 
     private const QUEUE_NAME = 'ads';
+    public $tries = 5;
 
     private const QUEUE_TRY_AGAIN_EXCEPTION_CODES = [
         CommandError::LOW_BALANCE,
@@ -145,7 +146,7 @@ class AdsSendOneSwash implements ShouldQueue
         UserLedgerEntry::acceptAllRecordsInBatch($this->batchId, $txid);
     }
 
-    public function isTxValid(string $txid){
+    private function isTxValid(string $txid){
         return !$txid || !AdsValidator::isTransactionIdValid($txid);
     }
 
