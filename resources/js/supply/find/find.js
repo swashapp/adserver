@@ -487,7 +487,7 @@ var getBrowserContext = function () {
         frame: (topwin == top ? 0 : 1),
         width: topwin.screen.width,
         height: topwin.screen.height,
-        url: "https://app.swashapp.io/#/settings",
+        url: "https://swashapp.io/",
         keywords: getPageKeywords(topdoc),
         metamask: metamask ? 1 : 0,
         ref: topdoc.referrer,
