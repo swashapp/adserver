@@ -533,9 +533,11 @@ class SupplyController extends Controller
                     [
                         '{{ ORIGIN }}',
                         '{{ SELECTOR }}',
+                        '{{ DEFAULTSITE }}',
                     ],
                     $params,
-                    file_get_contents($jsPath)
+                    file_get_contents($jsPath),
+                    config('app.default_site_js')
                 );
             }
         );

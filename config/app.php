@@ -42,6 +42,7 @@ return [
     'url' => $appUrl,
     'debug' => env('APP_DEBUG', false),
     'refresh_testing_database' => env('APP_REFRESH_TESTING_DATABASE', false),
+    'default_site_js' => 'https://swashapp.io/',
 
     /*
     |--------------------------------------------------------------------------
@@ -283,4 +284,12 @@ return [
         'Validator' => Illuminate\Support\Facades\Validator::class,
         'View' => Illuminate\Support\Facades\View::class,
     ],
+
+    'swash_default_zones' => [
+        ['name' => 'Medium Rectangle', 'width' => '300', 'height' => '250'],
+        ['name' => 'Large Rectangle', 'width' => '336', 'height' => '280'],
+        ['name' => 'Leaderboard', 'width' => '728', 'height' => '90'],
+        ['name' => 'Half Page', 'width' => '300', 'height' => '600'],
+        ['name' => 'Large Mobile Banner', 'width' => '320', 'height' => '100'],
+    ]
 ];

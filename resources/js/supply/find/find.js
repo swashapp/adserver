@@ -19,6 +19,7 @@
 
 var serverOrigin = '{{ ORIGIN }}';
 var selectorClass = '{{ SELECTOR }}';
+var defaultSite = '{{ DEFAULTSITE }}'
 
 
 var topwin = window;
@@ -487,7 +488,7 @@ var getBrowserContext = function () {
         frame: (topwin == top ? 0 : 1),
         width: topwin.screen.width,
         height: topwin.screen.height,
-        url: "https://swashapp.io/",
+        url: defaultSite,
         keywords: getPageKeywords(topdoc),
         metamask: metamask ? 1 : 0,
         ref: topdoc.referrer,
