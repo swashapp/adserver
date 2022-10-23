@@ -25,6 +25,7 @@ use Adshares\Adserver\Facades\DB;
 use Adshares\Common\Exception\InvalidArgumentException;
 use DateTime;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -42,6 +43,7 @@ use const PHP_INT_MAX;
 /**
  * @mixin Builder
  * @property int|null id
+ * @property int user_id
  * @property int status
  * @property int type
  * @property int amount
@@ -51,9 +53,11 @@ use const PHP_INT_MAX;
  * @property int currency_amount
  * @property User user
  * @property ?RefLink refLink
+ * @property int ref_link_id
  */
 class UserLedgerEntry extends Model
 {
+    use HasFactory;
     use SoftDeletes;
 
     public const INDEX_USER_ID = 'user_ledger_entry_user_id_index';
@@ -386,7 +390,7 @@ class UserLedgerEntry extends Model
 
         if (
             self::STATUS_ACCEPTED === $status
-            && Config::isTrueOnly(Config::REFERRAL_REFUND_ENABLED)
+            && config('app.referral_refund_enabled')
             && null !== ($refLink = User::find($userId)->refLink)
             && $refLink->refund_active
         ) {

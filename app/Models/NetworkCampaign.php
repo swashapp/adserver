@@ -26,17 +26,23 @@ use Adshares\Adserver\Models\Traits\BinHex;
 use Adshares\Supply\Domain\ValueObject\Status;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int id
+ * @property string uuid
+ * @property string source_address
+ * @property string medium
+ * @property string|null vendor
  * @mixin Builder
  */
 class NetworkCampaign extends Model
 {
     use AutomateMutators;
     use BinHex;
+    use HasFactory;
 
     /**
      * The attributes that are mass assignable.
@@ -75,6 +81,8 @@ class NetworkCampaign extends Model
         'budget',
         'date_start',
         'date_end',
+        'medium',
+        'vendor',
         'targeting_requires',
         'targeting_excludes',
         'status',

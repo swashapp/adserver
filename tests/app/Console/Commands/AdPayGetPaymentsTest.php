@@ -23,13 +23,19 @@ declare(strict_types=1);
 
 namespace Adshares\Adserver\Tests\Console\Commands;
 
+use Adshares\Adserver\Console\Commands\AdPayGetPayments;
+use Adshares\Adserver\Console\Locker;
+use Adshares\Adserver\Exceptions\Demand\AdPayReportMissingEventsException;
+use Adshares\Adserver\Exceptions\Demand\AdPayReportNotReadyException;
 use Adshares\Adserver\Models\Banner;
 use Adshares\Adserver\Models\Campaign;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\EventLog;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\UserLedgerEntry;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
 use Adshares\Common\Application\Dto\ExchangeRate;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\ExchangeRateRepository;
 use Adshares\Common\Infrastructure\Service\ExchangeRateReader;
 use Adshares\Demand\Application\Service\AdPay;
@@ -37,12 +43,13 @@ use Adshares\Mock\Client\DummyExchangeRateRepository;
 use DateTime;
 use Illuminate\Database\Eloquent\Collection;
 
-use function factory;
 use function json_decode;
 use function random_int;
 
 class AdPayGetPaymentsTest extends ConsoleTestCase
 {
+    private const COMMAND_SIGNATURE = 'ops:adpay:payments:get';
+
     public function testHandle(): void
     {
         $dummyExchangeRateRepository = new DummyExchangeRateRepository();
@@ -54,19 +61,22 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
             }
         );
 
-        $user = factory(User::class)->create();
+        /** @var User $user */
+        $user = User::factory()->create();
         $userId = $user->id;
         $userUuid = $user->uuid;
 
-        $campaign = factory(Campaign::class)->create(['user_id' => $userId, 'budget' => 10 ** 7 * 10 ** 11]);
+        /** @var Campaign $campaign */
+        $campaign = Campaign::factory()->create(['user_id' => $userId, 'budget' => 10 ** 7 * 10 ** 11]);
         $campaignId = $campaign->id;
         $campaignUuid = $campaign->uuid;
 
-        $banner = factory(Banner::class)->create(['campaign_id' => $campaignId]);
+        /** @var Banner $banner */
+        $banner = Banner::factory()->create(['campaign_id' => $campaignId]);
         $bannerUuid = $banner->uuid;
 
         /** @var Collection|EventLog[] $events */
-        $events = factory(EventLog::class)->times(666)->create([
+        $events = EventLog::factory()->times(666)->create([
             'event_value_currency' => null,
             'advertiser_id' => $userUuid,
             'campaign_id' => $campaignUuid,
@@ -86,7 +96,7 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
         $userBalance = (int)ceil(
             $totalInCurrency / $dummyExchangeRateRepository->fetchExchangeRate(new DateTime())->getValue()
         );
-        factory(UserLedgerEntry::class)->create(['amount' => $userBalance, 'user_id' => $userId]);
+        UserLedgerEntry::factory()->create(['amount' => $userBalance, 'user_id' => $userId]);
 
         $this->app->bind(
             AdPay::class,
@@ -102,7 +112,7 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
             }
         );
 
-        $this->artisan('ops:adpay:payments:get')
+        $this->artisan(self::COMMAND_SIGNATURE)
             ->assertExitCode(0);
 
         $calculatedEvents->each(function (array $eventValue) {
@@ -120,14 +130,14 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
     public function testNormalization(): void
     {
         /** @var User $user */
-        $user = factory(User::class)->times(1)->create()->each(static function (User $user) {
+        $user = User::factory()->times(1)->create()->each(static function (User $user) {
             $entries = [
                 [UserLedgerEntry::TYPE_DEPOSIT, 100, UserLedgerEntry::STATUS_ACCEPTED],
                 [UserLedgerEntry::TYPE_BONUS_INCOME, 100, UserLedgerEntry::STATUS_ACCEPTED],
             ];
 
             foreach ($entries as $entry) {
-                factory(UserLedgerEntry::class)->create([
+                UserLedgerEntry::factory()->create([
                     'type' => $entry[0],
                     'amount' => $entry[1],
                     'status' => $entry[2],
@@ -135,12 +145,12 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
                 ]);
             }
 
-            factory(Campaign::class)->create([
+            Campaign::factory()->create([
                 'user_id' => $user->id,
                 'budget' => 100,
                 'status' => Campaign::STATUS_ACTIVE,
             ]);
-            factory(Campaign::class)->create([
+            Campaign::factory()->create([
                 'user_id' => $user->id,
                 'budget' => 100,
                 'status' => Campaign::STATUS_ACTIVE,
@@ -148,11 +158,12 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
             ]);
 
             Campaign::all()->each(static function (Campaign $campaign) {
-                $banner = factory(Banner::class)->create([
+                /** @var Banner $banner */
+                $banner = Banner::factory()->create([
                     'campaign_id' => $campaign->id,
                 ]);
 
-                factory(EventLog::class)->times(1)->create([
+                EventLog::factory()->times(1)->create([
                     'event_value_currency' => null,
                     'advertiser_id' => $campaign->user->uuid,
                     'campaign_id' => $campaign->uuid,
@@ -160,7 +171,7 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
                 ]);
 
                 if (!$campaign->isDirectDeal()) {
-                    factory(EventLog::class)->times(1)->create([
+                    EventLog::factory()->times(1)->create([
                         'event_value_currency' => null,
                         'advertiser_id' => $campaign->user->uuid,
                         'campaign_id' => $campaign->uuid,
@@ -193,7 +204,6 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
             ExchangeRateReader::class,
             function () {
                 $mock = $this->createMock(ExchangeRateReader::class);
-
                 $mock->method('fetchExchangeRate')
                     ->willReturn(new ExchangeRate(new DateTime(), 1, 'XXX'));
 
@@ -201,7 +211,7 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
             }
         );
 
-        $this->artisan('ops:adpay:payments:get')
+        $this->artisan(self::COMMAND_SIGNATURE)
             ->assertExitCode(0);
 
         $events = EventLog::all();
@@ -209,5 +219,120 @@ class AdPayGetPaymentsTest extends ConsoleTestCase
         self::assertEquals(200, $events->sum('event_value_currency'));
         self::assertEquals(3, $events->count());
         self::assertEquals(0, $user->getBalance());
+    }
+
+    /**
+     * @dataProvider currencyProvider
+     */
+    public function testCurrency(Currency $currency, int $valueInCurrency, float $rate, int $expectedValue): void
+    {
+        Config::updateAdminSettings([Config::CURRENCY => $currency->value]);
+
+        /** @var User $user */
+        $user = User::factory()->create();
+        UserLedgerEntry::factory()->create(['amount' => 5 * 10 ** 11, 'user_id' => $user->id]);
+
+        /** @var Campaign $campaign */
+        $campaign = Campaign::factory()->create(['user_id' => $user->id, 'budget' => 10 ** 11]);
+
+        /** @var Banner $banner */
+        $banner = Banner::factory()->create(['campaign_id' => $campaign->id]);
+
+        /** @var EventLog $event */
+        $event = EventLog::factory()->create([
+            'advertiser_id' => $user->uuid,
+            'campaign_id' => $campaign->uuid,
+            'banner_id' => $banner->uuid,
+            'event_type' => EventLog::TYPE_VIEW,
+            'event_value_currency' => null,
+        ]);
+
+        $calculatedEvent = [
+            'event_id' => $event->event_id,
+            'event_type' => $event->event_type,
+            'value' => $valueInCurrency,
+            'status' => 0,
+        ];
+
+        $this->app->bind(
+            AdPay::class,
+            function () use ($calculatedEvent) {
+                $mock = $this->createMock(AdPay::class);
+                $mock->method('getPayments')->will(
+                    $this->returnCallback(
+                        function ($timestamp, $recalculate, $force, $limit, $offset) use ($calculatedEvent) {
+                            return $offset > 0 ? [] : [$calculatedEvent];
+                        }
+                    )
+                );
+                return $mock;
+            }
+        );
+
+        self::artisan(self::COMMAND_SIGNATURE)
+            ->assertExitCode(AdPayGetPayments::STATUS_OK);
+
+        self::assertDatabaseHas(
+            'event_logs',
+            [
+                'event_id' => hex2bin($calculatedEvent['event_id']),
+                'event_value' => $expectedValue,
+                'event_value_currency' => $calculatedEvent['value'],
+                'exchange_rate' => $rate,
+                'payment_status' => $calculatedEvent['status'],
+            ]
+        );
+    }
+
+    public function currencyProvider(): array
+    {
+        return [
+            'ADS' => [Currency::ADS, 1_000_000_000, 0.3333, 3_000_300_030],
+            'USD' => [Currency::USD, 1_000_000_000, 1.0, 1_000_000_000],
+        ];
+    }
+
+    public function testLock(): void
+    {
+        $lockerMock = $this->createMock(Locker::class);
+        $lockerMock->expects(self::once())->method('lock')->willReturn(false);
+        $this->instance(Locker::class, $lockerMock);
+
+        $this->artisan(self::COMMAND_SIGNATURE)
+            ->assertExitCode(AdPayGetPayments::STATUS_LOCKED);
+    }
+
+    public function testHandleAdPayExceptionOnReportNotReady(): void
+    {
+        $this->app->bind(
+            AdPay::class,
+            function () {
+                $mock = $this->createMock(AdPay::class);
+                $mock->method('getPayments')->willThrowException(
+                    new AdPayReportNotReadyException('Test exception')
+                );
+                return $mock;
+            }
+        );
+
+        $this->artisan(self::COMMAND_SIGNATURE)
+            ->assertExitCode(AdPayGetPayments::STATUS_CLIENT_EXCEPTION);
+    }
+
+    public function testHandleAdPayExceptionOnMissingEvents(): void
+    {
+        $this->app->bind(
+            AdPay::class,
+            function () {
+                $mock = $this->createMock(AdPay::class);
+                $mock->method('getPayments')->willThrowException(
+                    new AdPayReportMissingEventsException('Test exception')
+                );
+                return $mock;
+            }
+        );
+
+        $this->artisan(self::COMMAND_SIGNATURE)
+            ->assertExitCode(AdPayGetPayments::STATUS_REQUEST_FAILED);
     }
 }

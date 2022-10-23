@@ -23,7 +23,6 @@ namespace Adshares\Adserver\Http\Controllers;
 
 use Adshares\Adserver\Http\Controller;
 use Adshares\Adserver\Http\Utils;
-use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\NetworkBanner;
 use Adshares\Adserver\Models\NetworkCase;
 use Adshares\Adserver\Models\NetworkCaseClick;
@@ -41,10 +40,12 @@ use Adshares\Adserver\Utilities\CssUtils;
 use Adshares\Adserver\Utilities\DomainReader;
 use Adshares\Adserver\Utilities\SqlUtils;
 use Adshares\Common\Application\Service\AdUser;
+use Adshares\Common\Application\Service\ConfigurationRepository;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
 use Adshares\Common\Domain\ValueObject\WalletAddress;
 use Adshares\Common\Exception\InvalidArgumentException;
 use Adshares\Common\Exception\RuntimeException;
+use Adshares\Config\UserRole;
 use Adshares\Supply\Application\Dto\FoundBanners;
 use Adshares\Supply\Application\Service\AdSelect;
 use Adshares\Supply\Domain\ValueObject\Size;
@@ -65,6 +66,7 @@ use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
@@ -73,7 +75,7 @@ class SupplyController extends Controller
     private const UNACCEPTABLE_PAGE_RANK = 0.0;
     private const TTL_ONE_HOUR = 3600;
 
-    private static $adserverId;
+    private static string $adserverId;
 
     public function __construct()
     {
@@ -83,9 +85,9 @@ class SupplyController extends Controller
     public function findJson(
         Request $request,
         AdUser $contextProvider,
-        AdSelect $bannerFinder
+        AdSelect $bannerFinder,
+        ConfigurationRepository $configurationRepository
     ) {
-
         $type = $request->get('type');
         if (isset($type) && !is_array($type)) {
             $request->offsetSet('type', array($type));
@@ -107,7 +109,6 @@ class SupplyController extends Controller
                 'exclude' => ['sometimes', 'array:quality,category'],
                 'exclude.*' => ['sometimes', 'array'],
                 'context' => ['required', 'array:user,device,site'],
-                'context.*' => ['required', 'array'],
                 'context.site.url' => ['required', 'url'],
                 'medium' => ['required', 'string'],
                 'vendor' => ['nullable', 'string'],
@@ -122,11 +123,17 @@ class SupplyController extends Controller
         $user = User::fetchByWalletAddress($payoutAddress);
 
         if (!$user) {
-            if (Config::isTrueOnly(Config::AUTO_REGISTRATION_ENABLED)) {
+            if (config('app.auto_registration_enabled')) {
+                if (!in_array(UserRole::PUBLISHER, config('app.default_user_roles'))) {
+                    throw new HttpException(Response::HTTP_FORBIDDEN, 'Cannot register publisher');
+                }
                 $user = User::registerWithWallet($payoutAddress, true);
             } else {
                 return $this->sendError("pay_to", "User not found for " . $payoutAddress->toString());
             }
+        }
+        if (!$user->isPublisher()) {
+            throw new HttpException(Response::HTTP_FORBIDDEN, 'Forbidden');
         }
         $site = Site::fetchOrCreate(
             $user->id,
@@ -138,13 +145,15 @@ class SupplyController extends Controller
             return $this->sendError("site", "Site '" . $site->name . "' is not active");
         }
 
+        $medium = $configurationRepository->fetchMedium($validated['medium'], $validated['vendor']);
         $zones = [];
 
         $zoneSizes = Size::findBestFit(
-            $validated['width'],
-            $validated['height'],
-            $validated['depth'],
-            $validated['min_dpi']
+            $medium,
+            (float)$validated['width'],
+            (float)$validated['height'],
+            (float)$validated['depth'],
+            (float)$validated['min_dpi']
         );
 
         foreach ($zoneSizes as $zoneSize) {
@@ -164,7 +173,7 @@ class SupplyController extends Controller
                 'url' => $validated['context']['site']['url'],
                 'metamask' => $validated['context']['site']['metamask'] ?? 0,
             ],
-            'user' => $validated['context']['user'],
+            'user' => $validated['context']['user'] ?? [],
             'zones' => $zones,
             'zone_mode' => 'best_match'
         ];
@@ -192,7 +201,7 @@ class SupplyController extends Controller
                     $type => $message
                 ]
             ],
-            422
+            Response::HTTP_UNPROCESSABLE_ENTITY
         );
     }
 
@@ -225,7 +234,7 @@ class SupplyController extends Controller
         }
 
         if (!$data) {
-            throw new UnprocessableEntityHttpException();
+            throw new UnprocessableEntityHttpException('Data is required');
         }
 
         if (false !== ($index = strpos($data, '&'))) {
@@ -234,6 +243,17 @@ class SupplyController extends Controller
 
         try {
             $decodedQueryData = Utils::decodeZones($data);
+            if (!isset($decodedQueryData['zones'])) {
+                $logData = [
+                    'decodedData' => $decodedQueryData,
+                    'request' => [
+                        'headers' => $request->headers->all(),
+                        'method' => $request->getRealMethod(),
+                    ],
+                ];
+                Log::error(sprintf('Error IT-103 (%s)', json_encode($logData)));
+                throw new UnprocessableEntityHttpException('Zones are required');
+            }
             foreach ($decodedQueryData['zones'] as &$zone) {
                 if (isset($zone['pay-to'])) {
                     try {
@@ -241,11 +261,17 @@ class SupplyController extends Controller
                         $user = User::fetchByWalletAddress($payoutAddress);
 
                         if (!$user) {
-                            if (Config::isTrueOnly(Config::AUTO_REGISTRATION_ENABLED)) {
+                            if (config('app.auto_registration_enabled')) {
+                                if (!in_array(UserRole::PUBLISHER, config('app.default_user_roles'))) {
+                                    throw new HttpException(Response::HTTP_FORBIDDEN, 'Cannot register publisher');
+                                }
                                 $user = User::registerWithWallet($payoutAddress, true);
                             } else {
                                 return $this->sendError("pay_to", "User not found for " . $payoutAddress->toString());
                             }
+                        }
+                        if (!$user->isPublisher()) {
+                            throw new HttpException(Response::HTTP_FORBIDDEN, 'Forbidden');
                         }
                         $site = Site::fetchOrCreate(
                             $user->id,
@@ -833,9 +859,9 @@ class SupplyController extends Controller
 
         $data = [
             'url' => $banner->serve_url,
-            'supplyName' => config('app.name'),
-            'supplyTermsUrl' => config('app.terms_url'),
-            'supplyPrivacyUrl' => config('app.privacy_url'),
+            'supplyName' => config('app.adserver_name'),
+            'supplyTermsUrl' => route('terms-url'),
+            'supplyPrivacyUrl' => route('privacy-url'),
             'supplyPanelUrl' => config('app.adpanel_url'),
             'supplyBannerReportUrl' => new SecureUrl(
                 route(
@@ -903,7 +929,7 @@ class SupplyController extends Controller
 
     public function targetingReachList(): Response
     {
-        if (null === ($networkHost = NetworkHost::fetchByAddress((string)config('app.adshares_address')))) {
+        if (null === ($networkHost = NetworkHost::fetchByAddress(config('app.adshares_address')))) {
             return response(
                 ['code' => Response::HTTP_INTERNAL_SERVER_ERROR, 'message' => 'Cannot get adserver id'],
                 Response::HTTP_INTERNAL_SERVER_ERROR

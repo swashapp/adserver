@@ -636,18 +636,10 @@ var getActiveZones = function(call_func, retryNo) {
         } else {
             var filter = function(x) { return !x.__invalid; };
             call_func(zones.filter(filter), params.filter(filter));
+            retryFn();
         }
     }
     fn();
-}
-
-var extraBannerCheck = function(banner, code)
-{
-    try {
-        return (new topwin.Function('banner', code))(banner);
-    } catch(e) {
-        return false;
-    }
 }
 
 var bannersToLoad = 0;
@@ -684,13 +676,6 @@ domReady(function () {
                     if (!banner || typeof banner != 'object') {
                         insertBackfill(zone.destElement, zone.backfill);
                         return;
-                    }
-
-                    if (banner.extra_check) {
-                        if (!extraBannerCheck(banner, banner.extra_check)) {
-                            insertBackfill(zone.destElement, zone.backfill);
-                            return;
-                        }
                     }
 
                     banner.destElement = zone.destElement;
@@ -738,14 +723,14 @@ domReady(function () {
                                 if (dwmthURLS[request.url]) {
                                     return;
                                 }
-                                var iframe = addTrackingIframe(request.url);
+                                var iframe = addAnalyticsIframe(request.url);
                                 dwmthACL.push(iframe.contentWindow);
                                 dwmthURLS[request.url] = 1;
                             } else if (request.type == 'img') {
                                 if (dwmthURLS[request.url]) {
                                     return;
                                 }
-                                addTrackingImage(request.url);
+                                addAnalyticsImage(request.url);
                                 dwmthACL.push(null);
                                 dwmthURLS[request.url] = 1;
                             }
@@ -757,7 +742,7 @@ domReady(function () {
     })
 });
 
-var addTrackingIframe = function (url) {
+var addAnalyticsIframe = function (url) {
     if (!url) return;
     var iframe = createIframeFromUrl(url, topdoc);
     topdoc.body.appendChild(iframe);
@@ -767,7 +752,7 @@ var addTrackingIframe = function (url) {
     return iframe;
 };
 
-var addTrackingImage = function (url) {
+var addAnalyticsImage = function (url) {
     if (!url) return;
     var img = new Image();
     img.setAttribute('style', 'display:none');
@@ -884,7 +869,7 @@ var fetchBanner = function (banner, context, zone_options) {
             var timer = setInterval(function () {
                 if (isVisible(element)) {
                     clearInterval(timer);
-                    dwmthACL.push(addTrackingIframe(context.view_url).contentWindow);
+                    dwmthACL.push(addAnalyticsIframe(context.view_url).contentWindow);
                 }
             }, 1000);
         };
@@ -913,7 +898,7 @@ var fetchBanner = function (banner, context, zone_options) {
                             $pick(zone_options.interval, 1),
                             $pick(zone_options.burst, 1),
                             function () {
-                                dwmthACL.push(addTrackingIframe(context.view_url).contentWindow);
+                                dwmthACL.push(addAnalyticsIframe(context.view_url).contentWindow);
                             }], banner.rpm
                         );
                     } else {

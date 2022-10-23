@@ -30,8 +30,6 @@ use Adshares\Demand\Application\Service\AdPay;
 use DateTime;
 use PHPUnit\Framework\MockObject\Stub\ReturnCallback;
 
-use function factory;
-
 class AdPayCampaignExportCommandTest extends ConsoleTestCase
 {
     public function testHandle(): void
@@ -46,10 +44,10 @@ class AdPayCampaignExportCommandTest extends ConsoleTestCase
         $this->instance(AdPay::class, $adPayMock);
 
         /** @var User $user */
-        $user = factory(User::class)->create();
-        factory(Campaign::class)->create(['user_id' => $user->id, 'status' => Campaign::STATUS_ACTIVE]);
-        factory(Campaign::class)->create(['user_id' => $user->id, 'status' => Campaign::STATUS_INACTIVE]);
-        factory(Campaign::class)->create(
+        $user = User::factory()->create();
+        Campaign::factory()->create(['user_id' => $user->id, 'status' => Campaign::STATUS_ACTIVE]);
+        Campaign::factory()->create(['user_id' => $user->id, 'status' => Campaign::STATUS_INACTIVE]);
+        Campaign::factory()->create(
             ['user_id' => $user->id, 'status' => Campaign::STATUS_INACTIVE, 'deleted_at' => new DateTime()]
         );
 

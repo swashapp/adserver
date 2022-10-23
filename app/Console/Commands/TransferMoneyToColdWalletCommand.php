@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -26,24 +26,21 @@ namespace Adshares\Adserver\Console\Commands;
 use Adshares\Adserver\Console\Locker;
 use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\UserLedgerEntry;
+use Adshares\Common\Application\Model\Currency;
+use Adshares\Common\Infrastructure\Service\ExchangeRateReader;
 use Adshares\Demand\Application\Exception\TransferMoneyException;
 use Adshares\Demand\Application\Service\TransferMoneyToColdWallet;
-
-use function sprintf;
 
 class TransferMoneyToColdWalletCommand extends BaseCommand
 {
     protected $signature = 'ops:wallet:transfer:cold';
-
     protected $description = 'Transfer money from Hot to Cold Wallet when amount is greater than `max` definition';
 
-    /** @var TransferMoneyToColdWallet */
-    private $transferMoneyToColdWalletService;
-
-    public function __construct(Locker $locker, TransferMoneyToColdWallet $transferMoneyToColdWalletService)
-    {
-        $this->transferMoneyToColdWalletService = $transferMoneyToColdWalletService;
-
+    public function __construct(
+        Locker $locker,
+        private readonly ExchangeRateReader $exchangeRateReader,
+        private readonly TransferMoneyToColdWallet $transferMoneyToColdWalletService
+    ) {
         parent::__construct($locker);
     }
 
@@ -51,33 +48,36 @@ class TransferMoneyToColdWalletCommand extends BaseCommand
     {
         if (!$this->lock()) {
             $this->info('Command ' . $this->signature . ' already running');
-
             return;
         }
 
         $this->info('[Wallet] Start command ' . $this->signature);
 
-        if (!Config::isTrueOnly(Config::COLD_WALLET_IS_ACTIVE)) {
+        if (!config('app.cold_wallet_is_active')) {
             $this->info('[Wallet] Cold wallet feature is disabled.');
-
             return;
         }
 
         $waitingPayments = UserLedgerEntry::waitingPayments();
+        $appCurrency = Currency::from(config('app.currency'));
+        $waitingPaymentsInClicks = match ($appCurrency) {
+            Currency::ADS => $waitingPayments,
+            default => $this->exchangeRateReader->fetchExchangeRate(null, $appCurrency->value)
+                ->toClick($waitingPayments),
+        };
 
         try {
-            $response = $this->transferMoneyToColdWalletService->transfer($waitingPayments);
+            $response = $this->transferMoneyToColdWalletService->transfer($waitingPaymentsInClicks);
 
             if (!$response) {
                 $this->info('[Wallet] No clicks amount to transfer between Hot and Cold wallets.');
-
                 return;
             }
 
             $message = sprintf(
                 '[Wallet] Successfully transfer %s clicks to Cold Wallet (%s) (txid: %s).',
                 $response->getTransferValue(),
-                config('app.adshares_wallet_cold_address'),
+                config('app.cold_wallet_address'),
                 $response->getTransactionId()
             );
 
@@ -85,5 +85,7 @@ class TransferMoneyToColdWalletCommand extends BaseCommand
         } catch (TransferMoneyException $exception) {
             $this->error($exception->getMessage());
         }
+
+        $this->info('[Wallet] Finish command ' . $this->signature);
     }
 }

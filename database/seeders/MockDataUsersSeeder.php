@@ -51,8 +51,8 @@ class MockDataUsersSeeder extends Seeder
             $user->email = $row->email;
             $user->password = $row->password;
             $user->is_admin = $row->isAdmin ?? false;
-            $user->is_advertiser = $row->isAdvertiser ?? true;
-            $user->is_publisher = $row->isPublisher ?? true;
+            $user->is_advertiser = $row->isAdvertiser ?? 1;
+            $user->is_publisher = $row->isPublisher ?? 1;
             if ($row->isConfirmed ?? false) {
                 $user->confirmEmail();
             }
@@ -60,7 +60,7 @@ class MockDataUsersSeeder extends Seeder
 
             if (isset($row->adserverWallet)) {
                 if ($row->adserverWallet->total_funds) {
-                    factory(UserLedgerEntry::class)->create([
+                    UserLedgerEntry::factory()->create([
                         'user_id' => $user->id,
                         'amount' => $row->adserverWallet->total_funds * (10 ** 11),
                     ]);
@@ -72,5 +72,6 @@ class MockDataUsersSeeder extends Seeder
         DB::commit();
 
         $this->command->info('[mock] seeding: users from users.json - DONE');
+        return 0;
     }
 }

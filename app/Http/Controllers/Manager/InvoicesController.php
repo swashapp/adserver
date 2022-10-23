@@ -40,7 +40,7 @@ class InvoicesController extends Controller
 {
     public function browse(): JsonResponse
     {
-        if (!Config::isTrueOnly(Config::INVOICE_ENABLED)) {
+        if (!config('app.invoice_enabled')) {
             throw new NotFoundHttpException();
         }
 
@@ -55,7 +55,7 @@ class InvoicesController extends Controller
 
     public function add(Request $request): JsonResponse
     {
-        if (!Config::isTrueOnly(Config::INVOICE_ENABLED)) {
+        if (!config('app.invoice_enabled')) {
             throw new NotFoundHttpException();
         }
 
@@ -67,7 +67,7 @@ class InvoicesController extends Controller
 
         $input['user_id'] = $user->id;
         Validator::make($input, Invoice::$rules)->validate();
-        if (!in_array($input['currency'] ?? '', explode(',', Config::fetchStringOrFail(Config::INVOICE_CURRENCIES)))) {
+        if (!in_array($input['currency'] ?? '', config('app.invoice_currencies'))) {
             throw new UnprocessableEntityHttpException('Unsupported currency');
         }
         $invoice = Invoice::createProforma($input);
@@ -76,7 +76,7 @@ class InvoicesController extends Controller
         $mail->attach($invoice->pdf_file);
 
         if (null !== $user->email) {
-            Mail::to($user)->bcc(config('app.adshares_operator_email'))->queue($mail);
+            Mail::to($user)->bcc(config('app.technical_email'))->queue($mail);
         }
 
         return self::json($invoice, Response::HTTP_CREATED);

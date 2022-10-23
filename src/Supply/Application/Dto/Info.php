@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -25,83 +25,43 @@ namespace Adshares\Supply\Application\Dto;
 
 use Adshares\Common\Domain\Id;
 use Adshares\Common\Domain\ValueObject\AccountId;
-use Adshares\Common\Domain\ValueObject\Commission;
 use Adshares\Common\Domain\ValueObject\Email;
 use Adshares\Common\Domain\ValueObject\EmptyAccountId;
 use Adshares\Common\Domain\ValueObject\Url;
 use Adshares\Common\Exception\RuntimeException;
 use Adshares\Common\UrlInterface;
+use Adshares\Config\AppMode;
 use Adshares\Config\RegistrationMode;
 
 final class Info
 {
     public const CAPABILITY_PUBLISHER = 'PUB';
-
     public const CAPABILITY_ADVERTISER = 'ADV';
-
     private const AVAILABLE_CAPABILITY_VALUES = [
         self::CAPABILITY_PUBLISHER,
         self::CAPABILITY_ADVERTISER,
     ];
 
-    private string $module;
-
-    private string $name;
-
-    private string $version;
-
-    private array $capabilities;
-
-    private UrlInterface $panelUrl;
-
-    private UrlInterface $privacyUrl;
-
-    private UrlInterface $termsUrl;
-
-    private UrlInterface $inventoryUrl;
-
-    private UrlInterface $serverUrl;
-
-    private Id $adsAddress;
-
-    private ?Email $supportEmail;
-
-    private ?float $demandFee;
-
-    private ?float $supplyFee;
-
-    private string $registrationMode;
-
-    private ?InfoStatistics $statistics;
+    private ?float $demandFee = null;
+    private ?float $supplyFee = null;
+    private ?InfoStatistics $statistics = null;
 
     public function __construct(
-        string $module,
-        string $name,
-        string $version,
-        UrlInterface $serverUrl,
-        UrlInterface $panelUrl,
-        UrlInterface $privacyUrl,
-        UrlInterface $termsUrl,
-        UrlInterface $inventoryUrl,
-        Id $adsAddress,
-        ?Email $supportEmail,
-        array $capabilities,
-        string $registrationMode
+        private readonly string $module,
+        private readonly string $name,
+        private readonly string $version,
+        private readonly UrlInterface $serverUrl,
+        private readonly UrlInterface $panelUrl,
+        private readonly UrlInterface $privacyUrl,
+        private readonly UrlInterface $termsUrl,
+        private readonly UrlInterface $inventoryUrl,
+        private readonly Id $adsAddress,
+        private readonly ?Email $supportEmail,
+        private readonly array $capabilities,
+        private readonly string $registrationMode,
+        private readonly string $appMode,
     ) {
         $this->validateCapabilities($capabilities);
-
-        $this->module = $module;
-        $this->name = $name;
-        $this->version = $version;
-        $this->capabilities = $capabilities;
-        $this->panelUrl = $panelUrl;
-        $this->privacyUrl = $privacyUrl;
-        $this->termsUrl = $termsUrl;
-        $this->inventoryUrl = $inventoryUrl;
-        $this->serverUrl = $serverUrl;
-        $this->adsAddress = $adsAddress;
-        $this->supportEmail = $supportEmail;
-        $this->registrationMode = $registrationMode;
     }
 
     public function validateCapabilities(array $values): void
@@ -120,9 +80,9 @@ final class Info
         $adsAddress = isset($data['adsAddress']) ? new AccountId($data['adsAddress']) : new EmptyAccountId();
 
         $info = new self(
-            $data['module'] ?? $data['serviceType'],
+            $data['module'],
             $data['name'],
-            $data['version'] ?? $data['softwareVersion'],
+            $data['version'],
             new Url($data['serverUrl']),
             new Url($data['panelUrl']),
             new Url($data['privacyUrl']),
@@ -130,8 +90,9 @@ final class Info
             new Url($data['inventoryUrl']),
             $adsAddress,
             $email,
-            $data['capabilities'] ?? $data['supported'],
-            $data['registrationMode'] ?? RegistrationMode::PUBLIC
+            $data['capabilities'],
+            $data['registrationMode'] ?? RegistrationMode::PUBLIC,
+            $data['mode'] ?? AppMode::OPERATIONAL
         );
 
         if (isset($data['demandFee'])) {
@@ -163,6 +124,7 @@ final class Info
             'inventoryUrl' => $this->inventoryUrl->toString(),
             'adsAddress' => $this->adsAddress->toString(),
             'registrationMode' => $this->registrationMode,
+            'mode' => $this->appMode,
         ];
 
         if (null !== $this->supportEmail) {
@@ -245,5 +207,15 @@ final class Info
     public function setStatistics(InfoStatistics $statistics): void
     {
         $this->statistics = $statistics;
+    }
+
+    public function getStatistics(): ?InfoStatistics
+    {
+        return $this->statistics;
+    }
+
+    public function getAppMode(): string
+    {
+        return $this->appMode;
     }
 }

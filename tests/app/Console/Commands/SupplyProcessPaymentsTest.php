@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -22,9 +22,7 @@
 namespace Adshares\Adserver\Tests\Console\Commands;
 
 use Adshares\Adserver\Console\Locker;
-use Adshares\Adserver\Jobs\AdsSendOne;
 use Adshares\Adserver\Models\AdsPayment;
-use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\NetworkCase;
 use Adshares\Adserver\Models\NetworkCaseLogsHourlyMeta;
 use Adshares\Adserver\Models\NetworkCasePayment;
@@ -33,18 +31,13 @@ use Adshares\Adserver\Models\NetworkImpression;
 use Adshares\Adserver\Models\NetworkPayment;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
-use Adshares\Common\Application\Service\ExchangeRateRepository;
 use Adshares\Common\Domain\ValueObject\NullUrl;
 use Adshares\Common\Infrastructure\Service\LicenseReader;
-use Adshares\Mock\Client\DummyAdSelectClient;
 use Adshares\Mock\Client\DummyDemandClient;
-use Adshares\Mock\Client\DummyExchangeRateRepository;
-use Adshares\Supply\Application\Service\AdSelect;
 use Adshares\Supply\Application\Service\DemandClient;
 use Adshares\Supply\Application\Service\Exception\UnexpectedClientResponseException;
 use DateTimeImmutable;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Queue;
 
 class SupplyProcessPaymentsTest extends ConsoleTestCase
 {
@@ -57,8 +50,7 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
     public function testAdsProcessOutdated(): void
     {
         $demandClient = new DummyDemandClient();
-        $info = $demandClient->fetchInfo(new NullUrl());
-        $networkHost = NetworkHost::registerHost('0001-00000000-9B6F', $info);
+        $networkHost = self::registerHost($demandClient);
 
         $adsPayment = new AdsPayment();
         $createdAt = new DateTimeImmutable('-30 hours');
@@ -93,8 +85,7 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
     public function testAdsProcessDepositWithoutUser(): void
     {
         $demandClient = new DummyDemandClient();
-        $info = $demandClient->fetchInfo(new NullUrl());
-        $networkHost = NetworkHost::registerHost('0001-00000000-9B6F', $info);
+        $networkHost = self::registerHost($demandClient);
 
         $adsPayment = new AdsPayment();
         $adsPayment->txid = self::TX_ID_SEND_ONE;
@@ -124,11 +115,9 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
     public function testAdsProcessEventPayment(): void
     {
         $demandClient = new DummyDemandClient();
+        $networkHost = self::registerHost($demandClient);
 
-        $info = $demandClient->fetchInfo(new NullUrl());
-        $networkHost = NetworkHost::registerHost('0001-00000000-9B6F', $info);
-
-        $networkImpression = factory(NetworkImpression::class)->create();
+        $networkImpression = NetworkImpression::factory()->create();
         $paymentDetails = $demandClient->fetchPaymentDetails('', '', 333, 0);
 
         $totalAmount = 0;
@@ -137,12 +126,12 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
 
         /** @var LicenseReader $licenseReader */
         $licenseReader = app()->make(LicenseReader::class);
-        $licenseFeeCoefficient = $licenseReader->getFee(Config::LICENCE_RX_FEE);
+        $licenseFeeCoefficient = $licenseReader->getFee(LicenseReader::LICENSE_RX_FEE);
 
         foreach ($paymentDetails as $paymentDetail) {
             $publisherId = $paymentDetail['publisher_id'];
 
-            factory(NetworkCase::class)->create(
+            NetworkCase::factory()->create(
                 [
                     'case_id' => $paymentDetail['case_id'],
                     'network_impression_id' => $networkImpression->id,
@@ -174,13 +163,6 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
             }
         );
 
-        $this->app->bind(
-            AdSelect::class,
-            function () {
-                return new DummyAdSelectClient();
-            }
-        );
-
         $this->artisan(self::SIGNATURE, ['--chunkSize' => 500])->assertExitCode(0);
 
         $this->assertEquals(AdsPayment::STATUS_EVENT_PAYMENT, AdsPayment::all()->first()->status);
@@ -192,10 +174,9 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
     public function testAdsProcessEventPaymentWithServerError(): void
     {
         $demandClient = new DummyDemandClient();
-        $info = $demandClient->fetchInfo(new NullUrl());
-        $networkHost = NetworkHost::registerHost('0001-00000000-9B6F', $info);
+        $networkHost = self::registerHost($demandClient);
 
-        $networkImpression = factory(NetworkImpression::class)->create();
+        $networkImpression = NetworkImpression::factory()->create();
         $paymentDetails = $demandClient->fetchPaymentDetails('', '', 333, 0);
 
         $publisherIds = [];
@@ -204,12 +185,12 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
 
         /** @var LicenseReader $licenseReader */
         $licenseReader = app()->make(LicenseReader::class);
-        $licenseFeeCoefficient = $licenseReader->getFee(Config::LICENCE_RX_FEE);
+        $licenseFeeCoefficient = $licenseReader->getFee(LicenseReader::LICENSE_RX_FEE);
 
         foreach ($paymentDetails as $paymentDetail) {
             $publisherId = $paymentDetail['publisher_id'];
 
-            factory(NetworkCase::class)->create(
+            NetworkCase::factory()->create(
                 [
                     'case_id' => $paymentDetail['case_id'],
                     'network_impression_id' => $networkImpression->id,
@@ -227,7 +208,7 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
         }
 
         foreach ($publisherIds as $publisherId) {
-            factory(User::class)->create(['uuid' => $publisherId]);
+            User::factory()->create(['uuid' => $publisherId]);
         }
 
         $adsPayment = new AdsPayment();
@@ -269,13 +250,6 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
             }
         );
 
-        $this->app->bind(
-            AdSelect::class,
-            function () {
-                return new DummyAdSelectClient();
-            }
-        );
-
         $this->artisan(self::SIGNATURE, ['--chunkSize' => 500])->assertExitCode(0);
         $this->assertEquals(AdsPayment::STATUS_EVENT_PAYMENT_CANDIDATE, AdsPayment::all()->first()->status);
 
@@ -293,5 +267,15 @@ class SupplyProcessPaymentsTest extends ConsoleTestCase
         $this->instance(Locker::class, $lockerMock);
 
         $this->artisan(self::SIGNATURE)->assertExitCode(0);
+    }
+
+    private function registerHost(DummyDemandClient $demandClient): NetworkHost
+    {
+        $info = $demandClient->fetchInfo(new NullUrl());
+        return NetworkHost::factory()->create([
+            'address' => '0001-00000000-9B6F',
+            'info' => $info,
+            'info_url' => $info->getServerUrl() . 'info.json',
+        ]);
     }
 }

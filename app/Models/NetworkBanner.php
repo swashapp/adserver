@@ -27,6 +27,7 @@ use Adshares\Adserver\Models\Traits\AutomateMutators;
 use Adshares\Adserver\Models\Traits\BinHex;
 use Adshares\Supply\Domain\ValueObject\Status;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -38,6 +39,7 @@ use Illuminate\Support\Facades\Cache;
  * @property int id
  * @property string uuid
  * @property string demand_banner_id
+ * @property string checksum
  * @property string click_url
  * @property string serve_url
  * @property string view_url
@@ -53,6 +55,7 @@ class NetworkBanner extends Model
 {
     use AutomateMutators;
     use BinHex;
+    use HasFactory;
 
     private const TYPE_HTML = 'html';
     private const TYPE_IMAGE = 'image';
@@ -165,7 +168,7 @@ class NetworkBanner extends Model
         }
         return Cache::remember(
             'network_banners.' . $uuid,
-            (int)config('app.network_data_cache_ttl'),
+            config('app.network_data_cache_ttl'),
             function () use ($uuid) {
                 return self::where('uuid', hex2bin($uuid))->with(['campaign'])->first();
             }
@@ -273,7 +276,7 @@ class NetworkBanner extends Model
         }
 
         if ($networkBannerFilter->isLocal()) {
-            $query->where(self::NETWORK_CAMPAIGNS_COLUMN_SOURCE_ADDRESS, (string)config('app.adshares_address'));
+            $query->where(self::NETWORK_CAMPAIGNS_COLUMN_SOURCE_ADDRESS, config('app.adshares_address'));
         }
 
         return $query;

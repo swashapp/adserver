@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -32,8 +32,6 @@ use Adshares\Supply\Application\Service\Exception\UnexpectedClientResponseExcept
 use DateTimeImmutable;
 use Exception;
 use Illuminate\Support\Facades\DB;
-
-use function factory;
 
 class SiteRankReassessRequestCommandTest extends ConsoleTestCase
 {
@@ -72,7 +70,7 @@ class SiteRankReassessRequestCommandTest extends ConsoleTestCase
     public function testHighCtr(): void
     {
         /** @var Site $site */
-        $site = factory(Site::class)->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
+        $site = Site::factory()->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
         $views = 600;
         $clicks = $views / 2;
 
@@ -106,7 +104,7 @@ class SiteRankReassessRequestCommandTest extends ConsoleTestCase
     public function testTopRevenue(): void
     {
         /** @var Site $site */
-        $site = factory(Site::class)->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
+        $site = Site::factory()->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
         $views = 1;
         $revenue = 1e9;
 
@@ -140,7 +138,7 @@ class SiteRankReassessRequestCommandTest extends ConsoleTestCase
     public function testMultiReason(): void
     {
         /** @var Site $site */
-        $site = factory(Site::class)->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
+        $site = Site::factory()->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
         $views = 100000;
         $clicks = $views / 2;
         $revenue = 1e10;
@@ -288,7 +286,7 @@ class SiteRankReassessRequestCommandTest extends ConsoleTestCase
     private static function insertStatsForTooManyViews(): void
     {
         /** @var Site $site */
-        $site = factory(Site::class)->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
+        $site = Site::factory()->create(['reassess_available_at' => new DateTimeImmutable('-1 minute')]);
         $views = 100000;
 
         DB::insert(

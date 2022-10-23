@@ -25,6 +25,7 @@ use Adshares\Adserver\Http\Controller;
 use Adshares\Adserver\Http\Requests\GetSiteCode;
 use Adshares\Adserver\Http\Response\Site\SizesResponse;
 use Adshares\Adserver\Mail\Crm\SiteAdded;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\Site;
 use Adshares\Adserver\Models\SitesRejectedDomain;
 use Adshares\Adserver\Models\User;
@@ -35,6 +36,8 @@ use Adshares\Adserver\Services\Supply\SiteFilteringUpdater;
 use Adshares\Adserver\Utilities\DomainReader;
 use Adshares\Adserver\Utilities\SiteValidator;
 use Adshares\Common\Application\Dto\PageRank;
+use Adshares\Common\Application\Dto\TaxonomyV2\Medium;
+use Adshares\Common\Application\Service\ConfigurationRepository;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
 use Adshares\Common\Exception\InvalidArgumentException;
 use Adshares\Supply\Domain\ValueObject\Size;
@@ -52,11 +55,14 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 class SitesController extends Controller
 {
+    private ConfigurationRepository $configurationRepository;
     private SiteCategoriesValidator $siteCategoriesValidator;
 
     public function __construct(
+        ConfigurationRepository $configurationRepository,
         SiteCategoriesValidator $siteCategoriesValidator
     ) {
+        $this->configurationRepository = $configurationRepository;
         $this->siteCategoriesValidator = $siteCategoriesValidator;
     }
 
@@ -88,13 +94,19 @@ class SitesController extends Controller
             throw new UnprocessableEntityHttpException($exception->getMessage());
         }
 
-        $onlyAcceptedBanners = $input['only_accepted_banners'] ?? false;
-        if (!is_bool($onlyAcceptedBanners)) {
-            throw new UnprocessableEntityHttpException('Invalid only_accepted_banners');
+        $siteClassifierSetting = config('app.site_classifier_local_banners');
+        if (Config::CLASSIFIER_LOCAL_BANNERS_LOCAL_ONLY === $siteClassifierSetting) {
+            $onlyAcceptedBanners = true;
+        } else {
+            $defaultSetting = Config::CLASSIFIER_LOCAL_BANNERS_ALL_BY_DEFAULT !== $siteClassifierSetting;
+            $onlyAcceptedBanners = $input['only_accepted_banners'] ?? $defaultSetting;
+            if (!is_bool($onlyAcceptedBanners)) {
+                throw new UnprocessableEntityHttpException('Field `only_accepted_banners` must be a boolean');
+            }
         }
 
         $inputZones = $input['ad_units'] ?? null;
-        $this->validateInputZones($inputZones);
+        $this->validateInputZones($this->configurationRepository->fetchMedium($medium, $vendor), $inputZones);
         $filtering = $input['filtering'] ?? null;
         $this->validateFiltering($filtering);
 
@@ -110,9 +122,9 @@ class SitesController extends Controller
                 $input['name'],
                 $medium,
                 $vendor,
+                $onlyAcceptedBanners,
                 $input['status'],
                 $input['primary_language'],
-                $onlyAcceptedBanners,
                 $categoriesByUser,
                 $filtering,
             );
@@ -183,8 +195,23 @@ class SitesController extends Controller
             $input['domain'] = $domain;
             $updateDomainAndUrl = $site->domain !== $domain || $site->url !== $url;
         }
+        if (isset($input['only_accepted_banners'])) {
+            if (!is_bool($input['only_accepted_banners'])) {
+                throw new UnprocessableEntityHttpException('Field `only_accepted_banners` must be a boolean');
+            }
+            $siteClassifierSetting = config('app.site_classifier_local_banners');
+            if (
+                Config::CLASSIFIER_LOCAL_BANNERS_LOCAL_ONLY === $siteClassifierSetting
+                && !$input['only_accepted_banners']
+            ) {
+                throw new UnprocessableEntityHttpException('Field `only_accepted_banners` cannot be changed');
+            }
+        }
         $inputZones = $request->input('site.ad_units');
-        $this->validateInputZones($inputZones);
+        $this->validateInputZones(
+            $this->configurationRepository->fetchMedium($site->medium, $site->vendor),
+            $inputZones
+        );
 
         DB::beginTransaction();
 
@@ -367,14 +394,14 @@ class SitesController extends Controller
         return self::json(
             [
                 'code' => SiteCodeGenerator::generateCryptovoxels(
-                    new SecureUrl((string)config('app.url')),
+                    new SecureUrl(config('app.url')),
                     $user->wallet_address
                 )
             ]
         );
     }
 
-    private function validateInputZones($inputZones): void
+    private function validateInputZones(Medium $medium, $inputZones): void
     {
         if (null === $inputZones) {
             return;
@@ -384,14 +411,29 @@ class SitesController extends Controller
             throw new UnprocessableEntityHttpException('Invalid ad units type.');
         }
 
+        $allowedSizes = $this->getAllowedSizes($medium);
         foreach ($inputZones as $inputZone) {
             if (!isset($inputZone['name']) || !is_string($inputZone['name'])) {
                 throw new UnprocessableEntityHttpException('Invalid name.');
             }
-            if (!isset($inputZone['size']) || !is_string($inputZone['size']) || !Size::isValid($inputZone['size'])) {
+            if (
+                !isset($inputZone['size'])
+                || !is_string($inputZone['size'])
+                || !in_array($inputZone['size'], $allowedSizes)
+            ) {
                 throw new UnprocessableEntityHttpException('Invalid size.');
             }
         }
+    }
+
+    private function getAllowedSizes(Medium $medium): array
+    {
+        $sizes = [];
+        foreach ($medium->getFormats() as $format) {
+            $sizes = array_merge($sizes, $format->getScopes());
+        }
+
+        return array_keys($sizes);
     }
 
     private function validateFiltering($filtering): void

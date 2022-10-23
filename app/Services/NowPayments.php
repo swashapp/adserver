@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -28,6 +28,7 @@ use Adshares\Adserver\Mail\DepositProcessed;
 use Adshares\Adserver\Models\NowPaymentsLog;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\UserLedgerEntry;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\Exception\ExchangeRateNotAvailableException;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
 use Adshares\Common\Infrastructure\Service\ExchangeRateReader;
@@ -36,6 +37,7 @@ use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\RequestOptions;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -43,46 +45,26 @@ use Throwable;
 final class NowPayments
 {
     private const NOW_PAYMENTS_API_URL = 'https://api.nowpayments.io/v1';
-
     private const NOW_PAYMENTS_URL = 'https://nowpayments.io/payment';
 
-    /** @var string */
-    private $apiKey;
+    private string $apiKey;
+    private string $encryptedIpnSecret;
+    private string $currency;
+    private int $minAmount;
+    private int $maxAmount;
+    private float $fee;
+    private bool $useExchange;
 
-    /** @var string */
-    private $ipnSecret;
-
-    /** @var string */
-    private $currency;
-
-    /** @var int */
-    private $minAmount;
-
-    /** @var int */
-    private $maxAmount;
-
-    /** @var float */
-    private $fee;
-
-    /** @var string */
-    private $exchangeUrl;
-
-    /** @var ExchangeRateReader */
-    private $exchangeRateReader;
-
-    /** @var AdsExchange */
-    private $adsExchange;
-
-    public function __construct(ExchangeRateReader $exchangeRateReader, AdsExchange $adsExchange)
-    {
-        $this->exchangeRateReader = $exchangeRateReader;
-        $this->adsExchange = $adsExchange;
+    public function __construct(
+        private readonly ExchangeRateReader $exchangeRateReader,
+        private readonly AdsExchange $adsExchange,
+    ) {
         $this->apiKey = config('app.now_payments_api_key');
-        $this->ipnSecret = config('app.now_payments_ipn_secret');
+        $this->encryptedIpnSecret = config('app.now_payments_ipn_secret');
         $this->currency = config('app.now_payments_currency');
-        $this->minAmount = (int)config('app.now_payments_min_amount');
-        $this->maxAmount = (int)config('app.now_payments_max_amount');
-        $this->fee = (float)config('app.now_payments_fee');
+        $this->minAmount = config('app.now_payments_min_amount');
+        $this->maxAmount = config('app.now_payments_max_amount');
+        $this->fee = config('app.now_payments_fee');
         $this->useExchange = config('app.now_payments_exchange');
     }
 
@@ -128,7 +110,7 @@ final class NowPayments
             'paymentAmount' => $amount,
             'products' => [
                 [
-                    'name' => sprintf('Deposit ADS into %s', config('app.name')),
+                    'name' => sprintf('Deposit ADS into %s', config('app.adserver_name')),
                     'quantity' => 1,
                     'subtotal' => $amount,
                     'subtotal_tax' => 0,
@@ -163,7 +145,7 @@ final class NowPayments
         return hash_hmac(
             'sha512',
             json_encode($params, JSON_UNESCAPED_SLASHES),
-            $this->ipnSecret
+            Crypt::decryptString($this->encryptedIpnSecret)
         );
     }
 
@@ -201,7 +183,7 @@ final class NowPayments
     {
         $orderId = $params['orderId'] ?? '';
         $paymentId = $params['paymentId'] ?? '';
-        $amount = (float)($params['tragetAmount'] ?? 0);
+        $amount = (float)($params['targetAmount'] ?? 0);
 
         return $this->deposit($user, $amount, $orderId, $paymentId);
     }
@@ -209,14 +191,14 @@ final class NowPayments
     private function getExchangeRate(): float
     {
         try {
-            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate(null, $this->currency)->toArray();
+            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate(null, $this->currency);
         } catch (ExchangeRateNotAvailableException $exception) {
             Log::error(sprintf('[NowPayments] Cannot fetch exchange rate: %s', $exception->getMessage()));
 
             return 0;
         }
 
-        return (float)$exchangeRate['value'];
+        return $exchangeRate->getValue();
     }
 
     private function saveDeposit(
@@ -239,16 +221,17 @@ final class NowPayments
         }
 
         $clicks = AdsConverter::adsToClicks($amount);
+        $clicksInAppCurrency = $this->computeClicksInAppCurrency($clicks);
         $status = $processed ? UserLedgerEntry::STATUS_ACCEPTED : UserLedgerEntry::STATUS_PROCESSING;
         if ($entry === null) {
             $entry = UserLedgerEntry::construct(
                 $user->id,
-                $clicks,
+                $clicksInAppCurrency,
                 $status,
                 UserLedgerEntry::TYPE_DEPOSIT
             )->processed($ledgerTxId);
         } else {
-            $entry->amount = $clicks;
+            $entry->amount = $clicksInAppCurrency;
             $entry->status = $status;
         }
 
@@ -335,7 +318,9 @@ final class NowPayments
 
         if ($this->saveDeposit(true, $user, $amount, $orderId, $paymentId)) {
             if (null !== $user->email) {
-                Mail::to($user)->queue(new DepositProcessed(AdsConverter::adsToClicks($amount)));
+                $amountInAppCurrency = $this->computeClicksInAppCurrency(AdsConverter::adsToClicks($amount));
+                Mail::to($user)
+                    ->queue(new DepositProcessed($amountInAppCurrency, Currency::from(config('app.currency'))));
             }
             return true;
         }
@@ -388,5 +373,15 @@ final class NowPayments
         }
 
         return $amount * $rate;
+    }
+
+    private function computeClicksInAppCurrency(int $clicks): int
+    {
+        $appCurrency = Currency::from(config('app.currency'));
+
+        return match ($appCurrency) {
+            Currency::ADS => $clicks,
+            default => $this->exchangeRateReader->fetchExchangeRate(null, $appCurrency->value)->fromClick($clicks),
+        };
     }
 }

@@ -25,43 +25,23 @@ namespace Adshares\Adserver\Uploader\Image;
 
 use Adshares\Adserver\Uploader\UploadedFile;
 use Adshares\Supply\Domain\ValueObject\Size;
-use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
 class UploadedImage implements UploadedFile
 {
-    private string $name;
-    private string $previewUrl;
-    private array $size;
-
-    public function __construct(string $name, string $previewUrl, array $size)
-    {
-        $formattedSize = $this->getFormattedSize($size);
-        if (!Size::isValid($formattedSize)) {
-            throw new BadRequestHttpException('Unsupported image size: ' . $formattedSize);
-        }
-
-        $this->name = $name;
-        $this->previewUrl = $previewUrl;
-        $this->size = $size;
+    public function __construct(
+        private readonly string $name,
+        private readonly string $previewUrl,
+        private readonly int $width,
+        private readonly int $height,
+    ) {
     }
 
     public function toArray(): array
     {
-        $formattedSize = $this->getFormattedSize($this->size);
-
         return [
             'name' => $this->name,
             'url' => $this->previewUrl,
-            'size' => $formattedSize,
+            'size' => Size::fromDimensions($this->width, $this->height),
         ];
-    }
-
-    private function getFormattedSize(array $size): string
-    {
-        if (isset($size[0], $size[1])) {
-            return Size::fromDimensions((int)$size[0], (int)$size[1]);
-        }
-
-        return '';
     }
 }

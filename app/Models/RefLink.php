@@ -29,6 +29,7 @@ use Adshares\Adserver\Models\Traits\DateAtom;
 use Adshares\Adserver\Models\Traits\Ownership;
 use Adshares\Adserver\Utilities\UuidStringGenerator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -54,11 +55,13 @@ use Illuminate\Support\Collection;
  * @property Carbon updated_at
  * @property ?Carbon deleted_at
  * @property string status
+ * @property string user_roles
  * @mixin Builder
  */
 class RefLink extends Model
 {
     use AutomateMutators;
+    use HasFactory;
     use SoftDeletes;
     use Ownership;
     use DateAtom;
@@ -83,6 +86,7 @@ class RefLink extends Model
         'refund',
         'kept_refund',
         'refund_valid_until',
+        'user_roles',
     ];
 
     public static array $rules = [
@@ -95,6 +99,7 @@ class RefLink extends Model
         'refund' => 'numeric|min:0|max:1',
         'kept_refund' => 'numeric|min:0|max:1',
         'refund_valid_until' => 'date',
+        'user_roles' => 'max:255',
     ];
 
     protected $casts = [
@@ -124,13 +129,13 @@ class RefLink extends Model
 
     public function calculateRefund(int $amount): int
     {
-        $refund = $this->refund ?? Config::fetchFloatOrFail(Config::REFERRAL_REFUND_COMMISSION);
+        $refund = $this->refund ?? config('app.referral_refund_commission');
         return (int)floor($amount * $refund) - $this->calculateBonus($amount);
     }
 
     public function calculateBonus(int $amount): int
     {
-        $refund = $this->refund ?? Config::fetchFloatOrFail(Config::REFERRAL_REFUND_COMMISSION);
+        $refund = $this->refund ?? config('app.referral_refund_commission');
         return (int)round(floor($amount * $refund) * (1.0 - $this->kept_refund));
     }
 

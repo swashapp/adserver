@@ -24,17 +24,16 @@ declare(strict_types=1);
 namespace Adshares\Adserver\Http\Controllers\Manager;
 
 use Adshares\Adserver\Http\Controller;
+use Adshares\Adserver\Http\Requests\Campaign\BannerValidator;
 use Adshares\Adserver\Http\Requests\Campaign\MimeTypesValidator;
 use Adshares\Adserver\Http\Requests\Campaign\TargetingProcessor;
 use Adshares\Adserver\Http\Utils;
-use Adshares\Adserver\Jobs\ClassifyCampaign;
 use Adshares\Adserver\Mail\Crm\CampaignCreated;
 use Adshares\Adserver\Models\Banner;
 use Adshares\Adserver\Models\BannerClassification;
 use Adshares\Adserver\Models\BidStrategy;
 use Adshares\Adserver\Models\Campaign;
 use Adshares\Adserver\Models\ConversionDefinition;
-use Adshares\Adserver\Models\Notification;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Repository\CampaignRepository;
 use Adshares\Adserver\Repository\Common\ClassifierExternalRepository;
@@ -45,12 +44,13 @@ use Adshares\Adserver\Uploader\Model\ModelUploader;
 use Adshares\Adserver\Uploader\UploadedFile;
 use Adshares\Adserver\Uploader\Video\VideoUploader;
 use Adshares\Adserver\Uploader\Zip\ZipUploader;
+use Adshares\Common\Application\Dto\ExchangeRate;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\ConfigurationRepository;
 use Adshares\Common\Application\Service\Exception\ExchangeRateNotAvailableException;
 use Adshares\Common\Exception\InvalidArgumentException;
 use Adshares\Common\Exception\RuntimeException;
 use Adshares\Common\Infrastructure\Service\ExchangeRateReader;
-use Adshares\Supply\Domain\ValueObject\Size;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -68,36 +68,30 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 class CampaignsController extends Controller
 {
-    private CampaignRepository $campaignRepository;
-
-    private ConfigurationRepository $configurationRepository;
-
-    private ExchangeRateReader $exchangeRateReader;
-
-    private BannerClassificationCreator $bannerClassificationCreator;
-
-    private ClassifierExternalRepository $classifierExternalRepository;
-
     public function __construct(
-        CampaignRepository $campaignRepository,
-        ConfigurationRepository $configurationRepository,
-        ExchangeRateReader $exchangeRateReader,
-        BannerClassificationCreator $bannerClassificationCreator,
-        ClassifierExternalRepository $classifierExternalRepository
+        private readonly CampaignRepository $campaignRepository,
+        private readonly ConfigurationRepository $configurationRepository,
+        private readonly ExchangeRateReader $exchangeRateReader,
+        private readonly BannerClassificationCreator $bannerClassificationCreator,
+        private readonly ClassifierExternalRepository $classifierExternalRepository
     ) {
-        $this->campaignRepository = $campaignRepository;
-        $this->configurationRepository = $configurationRepository;
-        $this->exchangeRateReader = $exchangeRateReader;
-        $this->bannerClassificationCreator = $bannerClassificationCreator;
-        $this->classifierExternalRepository = $classifierExternalRepository;
     }
 
     public function upload(Request $request): UploadedFile
     {
+        $mediumName = $request->get('medium');
+        $vendor = $request->get('vendor');
+        if (!is_string($mediumName)) {
+            throw new UnprocessableEntityHttpException('Field `medium` must be a string');
+        }
+        if (null !== $vendor && !is_string($vendor)) {
+            throw new UnprocessableEntityHttpException('Field `vendor` must be a string or null');
+        }
         try {
-            return Factory::create($request)->upload();
-        } catch (RuntimeException $exception) {
-            throw new BadRequestHttpException($exception->getMessage());
+            $medium = $this->configurationRepository->fetchMedium($mediumName, $vendor);
+            return Factory::create($request)->upload($medium);
+        } catch (InvalidArgumentException | RuntimeException $exception) {
+            throw new UnprocessableEntityHttpException($exception->getMessage());
         }
     }
 
@@ -126,11 +120,7 @@ class CampaignsController extends Controller
 
     public function add(Request $request): JsonResponse
     {
-        try {
-            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate();
-        } catch (ExchangeRateNotAvailableException $exception) {
-            throw new ServiceUnavailableHttpException();
-        }
+        $exchangeRate = $this->fetchExchangeRateOrFail();
 
         $this->validateRequestObject($request, 'campaign', Campaign::$rules);
         $input = $request->input('campaign');
@@ -158,10 +148,8 @@ class CampaignsController extends Controller
 
         $banners = $conversions = [];
         if (isset($input['ads']) && count($input['ads']) > 0) {
-            $banners = $this->prepareBannersFromInput($input['ads'], $campaign->landing_url);
-            $mimesValidator = new MimeTypesValidator($this->configurationRepository->fetchTaxonomy());
             try {
-                $mimesValidator->validateMimeTypes($banners, $campaign->medium, $campaign->vendor);
+                $banners = $this->prepareBannersFromInput($input['ads'], $campaign);
             } catch (InvalidArgumentException $exception) {
                 throw new UnprocessableEntityHttpException($exception->getMessage());
             }
@@ -211,15 +199,19 @@ class CampaignsController extends Controller
 
     /**
      * @param array $input
-     * @param string $campaignLandingUrl
+     * @param Campaign $campaign
      * @return Banner[]|array
      */
-    private function prepareBannersFromInput(array $input, string $campaignLandingUrl): array
+    private function prepareBannersFromInput(array $input, Campaign $campaign): array
     {
+        $bannerValidator = new BannerValidator(
+            $this->configurationRepository->fetchMedium($campaign->medium, $campaign->vendor)
+        );
+
         $banners = [];
 
         foreach ($input as $banner) {
-            self::validateTypeAndSize($banner);
+            $bannerValidator->validateBanner($banner);
             $bannerModel = new Banner();
             $bannerModel->name = $banner['name'];
             $bannerModel->status = Banner::STATUS_ACTIVE;
@@ -252,7 +244,7 @@ class CampaignsController extends Controller
                     case Banner::TEXT_TYPE_DIRECT_LINK:
                     default:
                         $content = self::decorateUrlWithSize(
-                            empty($banner['creative_contents']) ? $campaignLandingUrl : $banner['creative_contents'],
+                            empty($banner['creative_contents']) ? $campaign->landing_url : $banner['creative_contents'],
                             $size
                         );
                         $mimeType = 'text/plain';
@@ -276,6 +268,9 @@ class CampaignsController extends Controller
 
             $banners[] = $bannerModel;
         }
+
+        $mimesValidator = new MimeTypesValidator($this->configurationRepository->fetchTaxonomy());
+        $mimesValidator->validateMimeTypes($banners, $campaign->medium, $campaign->vendor);
 
         return $banners;
     }
@@ -308,11 +303,7 @@ class CampaignsController extends Controller
 
     public function edit(Request $request, int $campaignId): JsonResponse
     {
-        try {
-            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate();
-        } catch (ExchangeRateNotAvailableException $exception) {
-            return self::json([], Response::HTTP_SERVICE_UNAVAILABLE);
-        }
+        $exchangeRate = $this->fetchExchangeRateOrFail();
 
         $this->validateRequestObject(
             $request,
@@ -400,10 +391,8 @@ class CampaignsController extends Controller
         }
 
         if ($banners) {
-            $bannersToInsert = $this->prepareBannersFromInput($banners->toArray(), $campaign->landing_url);
-            $mimesValidator = new MimeTypesValidator($this->configurationRepository->fetchTaxonomy());
             try {
-                $mimesValidator->validateMimeTypes($bannersToInsert, $campaign->medium, $campaign->vendor);
+                $bannersToInsert = $this->prepareBannersFromInput($banners->toArray(), $campaign);
             } catch (InvalidArgumentException $exception) {
                 throw new UnprocessableEntityHttpException($exception->getMessage());
             }
@@ -499,11 +488,7 @@ class CampaignsController extends Controller
 
     private function changeCampaignStatus(Campaign $campaign, int $status): JsonResponse
     {
-        try {
-            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate();
-        } catch (ExchangeRateNotAvailableException $exception) {
-            return self::json([], Response::HTTP_SERVICE_UNAVAILABLE);
-        }
+        $exchangeRate = $this->fetchExchangeRateOrFail();
 
         if (!$campaign->changeStatus($status, $exchangeRate)) {
             return self::json([], Response::HTTP_BAD_REQUEST, ["Cannot set status to {$status}"]);
@@ -601,37 +586,6 @@ class CampaignsController extends Controller
         );
     }
 
-    public function classify(int $campaignId): JsonResponse
-    {
-        $campaign = $this->campaignRepository->fetchCampaignById($campaignId);
-
-        $targetingRequires = ($campaign->targeting_requires) ? json_decode($campaign->targeting_requires, true) : null;
-        $targetingExcludes = ($campaign->targeting_excludes) ? json_decode($campaign->targeting_excludes, true) : null;
-
-        ClassifyCampaign::dispatch($campaignId, $targetingRequires, $targetingExcludes, []);
-
-        $campaign->classification_status = 1;
-        $campaign->update();
-
-        Notification::add(
-            $campaign->user_id,
-            Notification::CLASSIFICATION_TYPE,
-            'Classify queued',
-            sprintf('Campaign %s has been queued to classify', $campaign->id)
-        );
-
-        return self::json([], Response::HTTP_NO_CONTENT);
-    }
-
-    public function disableClassify(int $campaignId): void
-    {
-        $campaign = $this->campaignRepository->fetchCampaignById($campaignId);
-        $campaign->classification_status = 0;
-        $campaign->classification_tags = null;
-
-        $campaign->update();
-    }
-
     private function processTargeting(array $input): array
     {
         $medium = $input['basic_information']['medium'] ?? '';
@@ -701,25 +655,18 @@ class CampaignsController extends Controller
         }
     }
 
-    private static function validateTypeAndSize(array $banner): void
+    private function fetchExchangeRateOrFail(): ExchangeRate
     {
-        $type = $banner['creative_type'] ?? null;
-        if (!in_array($type, Banner::types())) {
-            throw new UnprocessableEntityHttpException(sprintf('Invalid type: %s.', $type));
-        }
-        $size = $banner['creative_size'];
-        if ($type === Banner::TEXT_TYPE_VIDEO) {
-            if (1 !== preg_match('/^[0-9]+x[0-9]+$/', $size)) {
-                throw new UnprocessableEntityHttpException(sprintf('Invalid video size: %s.', $size));
-            }
-            if (empty(Size::findMatching(...Size::toDimensions($size)))) {
-                throw new UnprocessableEntityHttpException(sprintf('Invalid video size: %s. No match', $size));
-            }
-            return;
+        if (Currency::ADS !== Currency::from(config('app.currency'))) {
+            return ExchangeRate::ONE(Currency::ADS);
         }
 
-        if (!Size::isValid($size)) {
-            throw new UnprocessableEntityHttpException(sprintf('Invalid banner size: %s.', $size));
+        try {
+            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate();
+        } catch (ExchangeRateNotAvailableException $exception) {
+            Log::error(sprintf('Exchange rate is not available (%s)', $exception->getMessage()));
+            throw new ServiceUnavailableHttpException();
         }
+        return $exchangeRate;
     }
 }

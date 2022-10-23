@@ -26,6 +26,7 @@ use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\Invoice;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Tests\TestCase;
+use Adshares\Adserver\Utilities\DatabaseConfigReader;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Mail;
 
@@ -48,11 +49,12 @@ class InvoicesControllerTest extends TestCase
                 Config::INVOICE_NUMBER_FORMAT => 'PROF NN/MM/YYYY',
             ]
         );
+        DatabaseConfigReader::overwriteAdministrationConfig();
     }
 
     public function testBrowseInvoicesWhenNoInvoices(): void
     {
-        $this->actingAs(factory(User::class)->create(), 'api');
+        $this->actingAs(User::factory()->create(), 'api');
 
         $response = $this->getJson(self::URI);
         $response->assertStatus(Response::HTTP_OK);
@@ -63,7 +65,7 @@ class InvoicesControllerTest extends TestCase
     {
         Config::updateAdminSettings([Config::INVOICE_ENABLED => '0']);
 
-        $this->actingAs(factory(User::class)->create(), 'api');
+        $this->actingAs(User::factory()->create(), 'api');
 
         $response = $this->getJson(self::URI);
         $response->assertStatus(Response::HTTP_NOT_FOUND);
@@ -71,10 +73,10 @@ class InvoicesControllerTest extends TestCase
 
     public function testBrowseInvoices(): void
     {
-        $user = factory(User::class)->create();
+        $user = User::factory()->create();
         $this->actingAs($user, 'api');
 
-        factory(Invoice::class)->create(
+        Invoice::factory()->create(
             [
                 'user_id' => $user->id,
                 'buyer_name' => 'Foo co.',
@@ -82,11 +84,11 @@ class InvoicesControllerTest extends TestCase
             ]
         );
         // default ref link
-        factory(Invoice::class)->create(['user_id' => $user->id]);
+        Invoice::factory()->create(['user_id' => $user->id]);
         // deleted ref link
-        factory(Invoice::class)->create(['user_id' => $user->id, 'deleted_at' => now()]);
+        Invoice::factory()->create(['user_id' => $user->id, 'deleted_at' => now()]);
         // other user ref link
-        factory(Invoice::class)->create();
+        Invoice::factory()->create();
 
         $response = $this->getJson(self::URI);
         $response->assertStatus(Response::HTTP_OK);
@@ -100,7 +102,7 @@ class InvoicesControllerTest extends TestCase
 
     public function testAddInvoice(): void
     {
-        $this->actingAs(factory(User::class)->create(), 'api');
+        $this->actingAs(User::factory()->create(), 'api');
 
         $response = $this->postJson(
             self::URI,
@@ -125,7 +127,7 @@ class InvoicesControllerTest extends TestCase
 
     public function testAddInvoiceValidation(): void
     {
-        $this->actingAs(factory(User::class)->create(), 'api');
+        $this->actingAs(User::factory()->create(), 'api');
 
         $response = $this->postJson(
             self::URI,
@@ -155,7 +157,7 @@ class InvoicesControllerTest extends TestCase
 
     public function testNotSupportedCurrency(): void
     {
-        $this->actingAs(factory(User::class)->create(), 'api');
+        $this->actingAs(User::factory()->create(), 'api');
 
         $response = $this->postJson(
             self::URI,

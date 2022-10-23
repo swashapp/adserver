@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -21,14 +21,15 @@
 
 namespace Adshares\Adserver\Tests\Console\Commands;
 
+use Adshares\Adserver\Console\Locker;
 use Adshares\Adserver\Jobs\AdsSendOne;
 use Adshares\Adserver\Mail\WithdrawalSuccess;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\UserLedgerEntry;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
-use Adshares\Common\Application\Service\ExchangeRateRepository;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Domain\ValueObject\WalletAddress;
-use Adshares\Mock\Client\DummyExchangeRateRepository;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 
@@ -38,59 +39,53 @@ class WalletWithdrawalCheckCommandTest extends ConsoleTestCase
 
     public function testAutoWithdrawal(): void
     {
-        Queue::fake();
-        Mail::fake();
-        $dummyExchangeRateRepository = new DummyExchangeRateRepository();
-        $this->app->bind(ExchangeRateRepository::class, static function () use ($dummyExchangeRateRepository) {
-            return $dummyExchangeRateRepository;
-        });
         /** @var User $user1 */
-        $user1 = factory(User::class)->create([
+        $user1 = User::factory()->create([
             'auto_withdrawal' => null,
             'wallet_address' => WalletAddress::fromString('ads:0001-00000001-8B4E')
         ]);
         /** @var User $user2 */
-        $user2 = factory(User::class)->create([
+        $user2 = User::factory()->create([
             'auto_withdrawal' => 150,
             'wallet_address' => WalletAddress::fromString('ads:0001-00000002-BB2D')
         ]);
         /** @var User $user3 */
-        $user3 = factory(User::class)->create([
+        $user3 = User::factory()->create([
             'auto_withdrawal' => 50,
             'wallet_address' => WalletAddress::fromString('ads:0001-00000003-AB0C')
         ]);
         /** @var User $user4 */
-        $user4 = factory(User::class)->create([
+        $user4 = User::factory()->create([
             'auto_withdrawal' => 50,
             'wallet_address' => WalletAddress::fromString('bsc:0xcfcecfe2bd2fed07a9145222e8a7ad9cf1ccd22a'),
             'email' => null,
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user1->id,
             'type' => UserLedgerEntry::TYPE_AD_INCOME,
             'amount' => 1000
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user2->id,
             'type' => UserLedgerEntry::TYPE_AD_INCOME,
             'amount' => 1000
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user2->id,
             'type' => UserLedgerEntry::TYPE_BONUS_INCOME,
             'amount' => 100
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user3->id,
             'type' => UserLedgerEntry::TYPE_AD_INCOME,
             'amount' => 100
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user3->id,
             'type' => UserLedgerEntry::TYPE_BONUS_INCOME,
             'amount' => 100
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'user_id' => $user4->id,
             'type' => UserLedgerEntry::TYPE_AD_INCOME,
             'amount' => 500
@@ -114,5 +109,104 @@ class WalletWithdrawalCheckCommandTest extends ConsoleTestCase
         $this->assertEquals(0, $user4->getWalletBalance());
         Queue::assertPushed(AdsSendOne::class, 2);
         Mail::assertQueued(WithdrawalSuccess::class, 1);
+    }
+
+    /**
+     * @dataProvider appCurrencyProvider
+     */
+    public function testAutoWithdrawalByAppCurrency(
+        Currency $currency,
+        int $amount,
+        int $expectedBaseAmount,
+        int $expectedAmountInClicks
+    ): void {
+        Config::updateAdminSettings([Config::CURRENCY => $currency->value]);
+        /** @var User $user */
+        $user = User::factory()->create([
+            'auto_withdrawal' => 0,
+            'wallet_address' => WalletAddress::fromString('ads:0001-00000002-BB2D'),
+        ]);
+        UserLedgerEntry::factory()->create([
+            'user_id' => $user->id,
+            'type' => UserLedgerEntry::TYPE_AD_INCOME,
+            'amount' => $amount,
+        ]);
+
+        $this->assertEquals($amount, $user->getBalance());
+        $this->artisan(self::SIGNATURE)->assertExitCode(0);
+        $this->assertEquals(0, $user->getBalance());
+        Queue::assertPushed(function (AdsSendOne $job) use ($expectedAmountInClicks) {
+            return $expectedAmountInClicks === $job->getAmount();
+        });
+        Mail::assertQueued(function (WithdrawalSuccess $mail) use ($expectedBaseAmount) {
+            return $expectedBaseAmount === $mail->getAmount();
+        });
+    }
+
+    public function testAutoWithdrawalNoWalletAddress(): void
+    {
+        /** @var User $user */
+        $user = User::factory()->create([
+            'auto_withdrawal' => 0,
+            'wallet_address' => null,
+        ]);
+        UserLedgerEntry::factory()->create([
+            'user_id' => $user->id,
+            'type' => UserLedgerEntry::TYPE_AD_INCOME,
+            'amount' => 10_005_000_000_000,
+        ]);
+
+        $this->assertEquals(10_005_000_000_000, $user->getBalance());
+        $this->artisan(self::SIGNATURE)->assertExitCode(0);
+        $this->assertEquals(10_005_000_000_000, $user->getBalance());
+        Queue::assertPushed(AdsSendOne::class, 0);
+        Mail::assertQueued(WithdrawalSuccess::class, 0);
+    }
+
+    public function testAutoWithdrawalUnsupportedNetwork(): void
+    {
+        /** @var User $user */
+        $user = User::factory()->create([
+            'auto_withdrawal' => 0,
+            'wallet_address' => WalletAddress::fromString('eth:0x0123456789012345678901234567890123456789'),
+        ]);
+        UserLedgerEntry::factory()->create([
+            'user_id' => $user->id,
+            'type' => UserLedgerEntry::TYPE_AD_INCOME,
+            'amount' => 10_005_000_000_000,
+        ]);
+
+        $this->assertEquals(10_005_000_000_000, $user->getBalance());
+        $this->artisan(self::SIGNATURE)->assertExitCode(0);
+        $this->assertEquals(10_005_000_000_000, $user->getBalance());
+        Queue::assertPushed(AdsSendOne::class, 0);
+        Mail::assertQueued(WithdrawalSuccess::class, 0);
+    }
+
+    public function testLock(): void
+    {
+        $lockerMock = $this->createMock(Locker::class);
+        $lockerMock->expects(self::once())->method('lock')->willReturn(false);
+        $this->instance(Locker::class, $lockerMock);
+
+        $this->artisan(self::SIGNATURE)->assertSuccessful();
+    }
+
+    public function appCurrencyProvider(): array
+    {
+        return [
+            'ADS' => [
+                Currency::ADS,
+                10_005_000_000_000,// withdraw amount (+fee) in currency
+                10_000_000_000_000,// withdraw amount (no fee) in currency
+                10_000_000_000_000,// sent amount in clicks
+            ],
+            'USD' => [
+                Currency::USD,
+                10_005_000_000_000,// withdraw amount (+fee) in currency
+                10_000_000_000_000,// withdraw amount (no fee) in currency
+                30_003_000_300_030,// sent amount in clicks, = x / 0.3333
+            ],
+        ];
     }
 }

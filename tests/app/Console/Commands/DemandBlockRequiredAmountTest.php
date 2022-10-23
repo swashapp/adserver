@@ -27,11 +27,13 @@ use Adshares\Adserver\Console\Locker;
 use Adshares\Adserver\Mail\CampaignSuspension;
 use Adshares\Adserver\Models\AdvertiserBudget;
 use Adshares\Adserver\Models\Campaign;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\EventLog;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\UserLedgerEntry;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
 use Adshares\Common\Application\Dto\ExchangeRate;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Infrastructure\Service\ExchangeRateReader;
 use Adshares\Demand\Application\Service\AdPay;
 use DateTime;
@@ -67,7 +69,7 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
         $this->mockExchangeRate();
 
         /** @var User $user */
-        $user = factory(User::class)->create();
+        $user = User::factory()->create();
 
         self::createCampaigns($user);
         self::createLedgerEntries($user);
@@ -85,6 +87,35 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
         self::assertEquals(200 * 10 ** 11, $user->getBonusBalance());
     }
 
+    /**
+     * @dataProvider blockByCurrencyProvider
+     */
+    public function testBlockByCurrency(Currency $currency, int $expectedBalance): void
+    {
+        Config::updateAdminSettings([Config::CURRENCY => $currency->value]);
+        /** @var User $user */
+        $user = User::factory()->create();
+
+        self::createCampaigns($user, 0, 1);
+        self::createLedgerEntries($user);
+
+        self::assertEquals(1000 * 10 ** 11, $user->getBalance());
+
+        $this->artisan(self::SIGNATURE)
+            ->expectsOutput('Attempt to create 1 blockades.')
+            ->assertExitCode(0);
+
+        self::assertEquals($expectedBalance, $user->getBalance());
+    }
+
+    public function blockByCurrencyProvider(): array
+    {
+        return [
+            'ADS' => [Currency::ADS, 69996999699970],// 1000 ADS - (100 / 0.3333) ADS
+            'USD' => [Currency::USD, 90000000000000],// 1000 - 100 USD
+        ];
+    }
+
     private static function createCampaigns(
         User $user,
         int $withTargeting = 2,
@@ -93,14 +124,14 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
         $withoutTargeting = $activeCount - $withTargeting;
 
         if ($withoutTargeting) {
-            factory(Campaign::class)->times($withoutTargeting)->create([
+            Campaign::factory()->times($withoutTargeting)->create([
                 'user_id' => $user->id,
                 'status' => Campaign::STATUS_ACTIVE,
             ]);
         }
 
         if ($withTargeting) {
-            factory(Campaign::class)->times($withTargeting)->create([
+            Campaign::factory()->times($withTargeting)->create([
                 'user_id' => $user->id,
                 'status' => Campaign::STATUS_ACTIVE,
                 'targeting_requires' => json_decode('{"site": {"domain": ["www.adshares.net"]}}', true),
@@ -109,7 +140,7 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
 
         return Campaign::all()->map(static function (Campaign $campaign) {
             /** @var Collection|EventLog[] $events */
-            return factory(EventLog::class)->times(3)->create([
+            return EventLog::factory()->times(3)->create([
                 'exchange_rate' => null,
                 'event_value' => null,
                 'event_value_currency' => null,
@@ -127,7 +158,7 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
         ];
 
         foreach ($entries as $entry) {
-            factory(UserLedgerEntry::class)->create([
+            UserLedgerEntry::factory()->create([
                 'type' => $entry[0],
                 'amount' => $entry[1],
                 'status' => $entry[2],
@@ -179,7 +210,7 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
 
     private function createStuff(int $withTargeting): User
     {
-        $user = factory(User::class)->create();
+        $user = User::factory()->create();
 
         $events = self::createCampaigns($user, $withTargeting);
         self::createLedgerEntries($user);
@@ -200,9 +231,9 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
 
     public function testFetchRequiredBudgetsPerUser(): void
     {
-        self::createCampaigns(factory(User::class)->create());
-        self::createCampaigns(factory(User::class)->create());
-        self::createCampaigns(factory(User::class)->create());
+        self::createCampaigns(User::factory()->create());
+        self::createCampaigns(User::factory()->create());
+        self::createCampaigns(User::factory()->create());
 
         $budgets = Campaign::fetchRequiredBudgetsPerUser();
 
@@ -231,15 +262,14 @@ class DemandBlockRequiredAmountTest extends ConsoleTestCase
 
     public function testHandleError(): void
     {
-        Mail::fake();
         /** @var User $user */
-        $user = factory(User::class)->create();
-        factory(Campaign::class)->create([
+        $user = User::factory()->create();
+        Campaign::factory()->create([
             'user_id' => $user->id,
             'budget' => 1e4 * 1e11,
             'status' => Campaign::STATUS_ACTIVE,
         ]);
-        factory(UserLedgerEntry::class)->create([
+        UserLedgerEntry::factory()->create([
             'type' => UserLedgerEntry::TYPE_DEPOSIT,
             'amount' => 100 * 1e11,
             'status' => UserLedgerEntry::STATUS_ACCEPTED,

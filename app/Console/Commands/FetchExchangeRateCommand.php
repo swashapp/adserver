@@ -26,20 +26,17 @@ namespace Adshares\Adserver\Console\Commands;
 use Adshares\Adserver\Console\Locker;
 use Adshares\Adserver\Repository\Common\EloquentExchangeRateRepository;
 use Adshares\Adserver\Utilities\SqlUtils;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\ExchangeRateRepository;
 use Illuminate\Database\QueryException;
 
 class FetchExchangeRateCommand extends BaseCommand
 {
     protected $signature = 'ops:exchange-rate:fetch';
-
     protected $description = 'Fetch exchange rate';
 
-    /** @var EloquentExchangeRateRepository */
-    private $repositoryStorable;
-
-    /** @var ExchangeRateRepository */
-    private $repositoryRemote;
+    private EloquentExchangeRateRepository $repositoryStorable;
+    private ExchangeRateRepository $repositoryRemote;
 
     public function __construct(
         Locker $locker,
@@ -56,15 +53,17 @@ class FetchExchangeRateCommand extends BaseCommand
     {
         if (!$this->lock()) {
             $this->info('Command ' . $this->signature . ' already running');
-
             return;
         }
 
         $this->info('Start command ' . $this->signature);
         $currencies = config('app.exchange_currencies');
+        if (Currency::ADS !== ($appCurrency = Currency::from(config('app.currency')))) {
+            $currencies[] = $appCurrency->value;
+            $currencies = array_unique($currencies);
+        }
         if (empty($currencies)) {
             $this->warn('Exchange currencies list is empty');
-
             return;
         }
 

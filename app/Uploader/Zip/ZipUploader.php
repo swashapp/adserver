@@ -25,6 +25,7 @@ namespace Adshares\Adserver\Uploader\Zip;
 
 use Adshares\Adserver\Uploader\UploadedFile;
 use Adshares\Adserver\Uploader\Uploader;
+use Adshares\Common\Application\Dto\TaxonomyV2\Medium;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
 use Adshares\Common\Exception\RuntimeException;
 use Adshares\Lib\ZipToHtml;
@@ -38,14 +39,12 @@ class ZipUploader implements Uploader
 {
     public const ZIP_FILE = 'zip';
     private const ZIP_DISK = 'banners';
-    private Request $request;
 
-    public function __construct(Request $request)
+    public function __construct(private readonly Request $request)
     {
-        $this->request = $request;
     }
 
-    public function upload(): UploadedFile
+    public function upload(Medium $medium): UploadedFile
     {
         $file = $this->request->file('file');
         $size = $file->getSize();

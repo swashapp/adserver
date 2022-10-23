@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -21,24 +21,34 @@
 
 namespace Adshares\Adserver\Tests\Console\Commands;
 
+use Adshares\Adserver\Console\Locker;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Repository\Common\EloquentExchangeRateRepository;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\Exception\ExchangeRateNotAvailableException;
 use Adshares\Common\Application\Service\ExchangeRateRepository;
-use Adshares\Mock\Client\DummyExchangeRateRepository;
+use Illuminate\Database\QueryException;
+use PDOException;
 
 final class FetchExchangeRateCommandTest extends ConsoleTestCase
 {
-    public function testFetchExchangeRate(): void
-    {
-        $this->app->bind(
-            ExchangeRateRepository::class,
-            function () {
-                return new DummyExchangeRateRepository();
-            }
-        );
+    private const COMMAND_SIGNATURE = 'ops:exchange-rate:fetch';
+
+    /**
+     * @dataProvider customProvider
+     */
+    public function testFetchExchangeRate(
+        Currency $appCurrency,
+        string $exchangeCurrencies,
+        int $expectedStoreCallsCount
+    ): void {
+        Config::updateAdminSettings([
+            Config::CURRENCY => $appCurrency->value,
+            Config::EXCHANGE_CURRENCIES => $exchangeCurrencies,
+        ]);
         $mockRepository = $this->createMock(EloquentExchangeRateRepository::class);
-        $mockRepository->expects($this->once())->method('storeExchangeRate');
+        $mockRepository->expects($this->exactly($expectedStoreCallsCount))->method('storeExchangeRate');
 
         $this->app->bind(
             EloquentExchangeRateRepository::class,
@@ -47,10 +57,21 @@ final class FetchExchangeRateCommandTest extends ConsoleTestCase
             }
         );
 
-        $this->artisan('ops:exchange-rate:fetch')->assertExitCode(0);
+        $this->artisan(self::COMMAND_SIGNATURE)->assertSuccessful();
     }
 
-    public function testFetchExchangeRateRepositoryException(): void
+    public function customProvider(): array
+    {
+        return [
+            [Currency::ADS, '', 0],
+            [Currency::ADS, 'USD', 1],
+            [Currency::USD, '', 1],
+            [Currency::USD, 'USD', 1],
+            [Currency::USD, 'EUR,USD', 2],
+        ];
+    }
+
+    public function testFetchExchangeRateNotAvailableException(): void
     {
         $mockRepository = $this->createMock(ExchangeRateRepository::class);
         $mockRepository->expects($this->once())->method('fetchExchangeRate')->willThrowException(
@@ -65,6 +86,50 @@ final class FetchExchangeRateCommandTest extends ConsoleTestCase
         );
 
         $this->expectException(ExchangeRateNotAvailableException::class);
-        $this->artisan('ops:exchange-rate:fetch');
+        $this->artisan(self::COMMAND_SIGNATURE);
+    }
+
+    public function testFetchExchangeRateStoreException(): void
+    {
+        $this->app->bind(
+            EloquentExchangeRateRepository::class,
+            function () {
+                $previous = new PDOException();
+                $previous->errorInfo = [0, 1040];
+                $queryException = new QueryException('', [], $previous);
+                $mock = self::createMock(EloquentExchangeRateRepository::class);
+                $mock->method('storeExchangeRate')->willThrowException($queryException);
+                return $mock;
+            }
+        );
+
+        $this->expectException(QueryException::class);
+        $this->artisan(self::COMMAND_SIGNATURE);
+    }
+
+    public function testFetchExchangeRateStoreDuplicateEntryException(): void
+    {
+        $this->app->bind(
+            EloquentExchangeRateRepository::class,
+            function () {
+                $previous = new PDOException();
+                $previous->errorInfo = [23000, 1062];
+                $duplicatedEntryException = new QueryException('', [], $previous);
+                $mock = self::createMock(EloquentExchangeRateRepository::class);
+                $mock->method('storeExchangeRate')->willThrowException($duplicatedEntryException);
+                return $mock;
+            }
+        );
+
+        $this->artisan(self::COMMAND_SIGNATURE)->assertSuccessful();
+    }
+
+    public function testLock(): void
+    {
+        $lockerMock = $this->createMock(Locker::class);
+        $lockerMock->expects(self::once())->method('lock')->willReturn(false);
+        $this->instance(Locker::class, $lockerMock);
+
+        $this->artisan(self::COMMAND_SIGNATURE)->assertSuccessful();
     }
 }

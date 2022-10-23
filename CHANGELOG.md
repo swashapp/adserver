@@ -1,3 +1,4 @@
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -5,7 +6,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.1] - 2022-10-04
+### Added
+- Monitoring network hosts
+- Reset network host's connection error
+### Changed
+- Extended stored network hosts' data
+### Fixed
+- Missing zones in find request
+- Do not resend email activation while email is not set
+- Remove tracking context cache
+
+## [2.1.0] - 2022-09-28
+### Added
+- Possibility to set application currency other than ADS
+- AdPanel's placeholders to config API
+- Allow change user roles
+- Login info to panel placeholders
+### Changed
+- Split user access for advertisers and publishers
+- Config API returns data after store
+### Removed
+- Registration forms URLs from info
+### Fixed
+- Do not expose SMTP password in config API
+- Remove deprecated zip* functions
+- Types, validators in config API
+- Block find if publisher cannot be determined
+
+## [2.0.5] - 2022-09-16
+### Fixed
+- Handle inventory import timeout
+- Do not import campaigns from deleted servers
+- Remove campaigns from deleted servers
+- Remove outdated servers
+
+## [2.0.4] - 2022-09-05
+### Fixed
+- Handle undefined stid
+
+## [2.0.3] - 2022-08-16
+### Fixed
+- Default config values
+- Supply statistics
+
+## [2.0.2] - 2022-08-11
+### Fixed
+- Decrypt encrypted API keys
+
+## [2.0.1] - 2022-08-04
+### Added
+- MySQL stored procedures clearing tables
+
+## [2.0.0] - 2022-08-03
+### Added
+- Configuration API
+### Changed
+- Laravel 9
+- PHP 8
+
+## [1.18.7] - 2022-07-27
+### Fixed
+- Support new sizes in metaverse
+
+## [1.18.6] - 2022-07-20
+### Changed
+- Add medium and vendor to stats
+- Validate banners' sizes with taxonomy
+### Fixed
+- Clear non whitelisted campaigns
+
+## [1.18.5] - 2022-07-08
+### Added
+- Inventory whitelist for adservers
+### Fixed
+- Default value of site classifier accepted banners setting
+- Progress of fetching hosts
+
+## [1.18.4] - 2022-06-30
+### Added
+- Command listing administrators
+- JWT authentication for other services
+### Fixed
+- Do not log entered password
+- Guest requests from DCL
 
 ## [1.18.3] - 2022-06-23
 ### Fixed
@@ -636,7 +720,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0]
 
-[Unreleased]: https://github.com/adshares/adserver/compare/v1.18.3...develop
+[Unreleased]: https://github.com/adshares/adserver/compare/v2.1.1...develop
+[2.1.1]: https://github.com/adshares/adserver/compare/v2.1.0...v2.1.1
+[2.1.0]: https://github.com/adshares/adserver/compare/v2.0.5...v2.1.0
+[2.0.5]: https://github.com/adshares/adserver/compare/v2.0.4...v2.0.5
+[2.0.4]: https://github.com/adshares/adserver/compare/v2.0.3...v2.0.4
+[2.0.3]: https://github.com/adshares/adserver/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/adshares/adserver/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/adshares/adserver/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/adshares/adserver/compare/v1.18.7...v2.0.0
+[1.18.7]: https://github.com/adshares/adserver/compare/v1.18.6...v1.18.7
+[1.18.6]: https://github.com/adshares/adserver/compare/v1.18.5...v1.18.6
+[1.18.5]: https://github.com/adshares/adserver/compare/v1.18.4...v1.18.5
+[1.18.4]: https://github.com/adshares/adserver/compare/v1.18.3...v1.18.4
 [1.18.3]: https://github.com/adshares/adserver/compare/v1.18.2...v1.18.3
 [1.18.2]: https://github.com/adshares/adserver/compare/v1.18.1...v1.18.2
 [1.18.1]: https://github.com/adshares/adserver/compare/v1.18.0...v1.18.1

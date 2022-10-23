@@ -31,6 +31,7 @@ use Adshares\Adserver\Utilities\InvoiceUtils;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -81,6 +82,7 @@ class Invoice extends Model
     use AutomateMutators;
     use SoftDeletes;
     use BinHex;
+    use HasFactory;
 
     public const TYPE_PROFORMA = 'proforma';
 
@@ -152,7 +154,7 @@ class Invoice extends Model
 
     public function getBankAccountAttribute(): array
     {
-        $accounts = Config::fetchJsonOrFail(Config::INVOICE_COMPANY_BANK_ACCOUNTS);
+        $accounts = config('app.invoice_company_bank_accounts');
         if (!array_key_exists($this->currency, $accounts)) {
             return [
                 'number' => null,
@@ -205,20 +207,18 @@ class Invoice extends Model
 
     public static function createProforma(array $input = []): self
     {
-        $settings = Config::fetchAdminSettings();
-
         $proforma = new self();
         $proforma->user_id = (int)$input['user_id'];
         $proforma->type = self::TYPE_PROFORMA;
         $proforma->issue_date = now()->startOfDay();
         $proforma->due_date = $proforma->issue_date->copy()->addDays(self::DEFAULT_DUE_DAYS);
 
-        $proforma->seller_name = $settings[Config::INVOICE_COMPANY_NAME];
-        $proforma->seller_address = $settings[Config::INVOICE_COMPANY_ADDRESS];
-        $proforma->seller_postal_code = $settings[Config::INVOICE_COMPANY_POSTAL_CODE];
-        $proforma->seller_city = $settings[Config::INVOICE_COMPANY_CITY];
-        $proforma->seller_country = $settings[Config::INVOICE_COMPANY_COUNTRY];
-        $proforma->seller_vat_id = $settings[Config::INVOICE_COMPANY_VAT_ID];
+        $proforma->seller_name = config('app.invoice_company_name');
+        $proforma->seller_address = config('app.invoice_company_address');
+        $proforma->seller_postal_code = config('app.invoice_company_postal_code');
+        $proforma->seller_city = config('app.invoice_company_city');
+        $proforma->seller_country = config('app.invoice_company_country');
+        $proforma->seller_vat_id = config('app.invoice_company_vat_id');
 
         $proforma->buyer_name = $input['buyer_name'];
         $proforma->buyer_address = $input['buyer_address'];
@@ -238,7 +238,7 @@ class Invoice extends Model
         DB::beginTransaction();
         try {
             $proforma->number = InvoiceUtils::formatNumber(
-                $settings[Config::INVOICE_NUMBER_FORMAT],
+                config('app.invoice_number_format'),
                 self::getNextSequence(self::TYPE_PROFORMA, $proforma->issue_date),
                 $proforma->issue_date,
                 config('app.adserver_id')

@@ -25,9 +25,11 @@ use Adshares\Adserver\Models\NetworkHost;
 use Adshares\Common\Domain\ValueObject\AccountId;
 use Adshares\Common\Domain\ValueObject\Email;
 use Adshares\Common\Domain\ValueObject\Url;
+use Adshares\Config\AppMode;
+use Adshares\Config\RegistrationMode;
 use Adshares\Supply\Application\Dto\Info;
 use Adshares\Supply\Application\Dto\InfoStatistics;
-use DateTime;
+use DateTimeImmutable;
 use Illuminate\Database\Seeder;
 
 class MockDataNetworkHostsSeeder extends Seeder
@@ -47,14 +49,20 @@ class MockDataNetworkHostsSeeder extends Seeder
             new Url('http://webserver/adshares/inventory/list'),
             new AccountId('0001-00000004-DBEB'),
             new Email('mail@example.com'),
-            ['PUB', 'ADV'],
-            'public'
+            [Info::CAPABILITY_PUBLISHER, Info::CAPABILITY_ADVERTISER],
+            RegistrationMode::PUBLIC,
+            AppMode::OPERATIONAL
         );
 
         $info->setDemandFee(0.01);
         $info->setSupplyFee(0.01);
         $info->setStatistics(new InfoStatistics(1, 1, 1));
 
-        NetworkHost::registerHost($info->getAdsAddress(), $info, new DateTime());
+        NetworkHost::factory()->create([
+            'address' => $info->getAdsAddress(),
+            'info' => $info,
+            'info_url' => $info->getServerUrl() . 'info.json',
+            'last_broadcast' => new DateTimeImmutable(),
+        ]);
     }
 }

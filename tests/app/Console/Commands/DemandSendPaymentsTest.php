@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2022 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -33,8 +33,6 @@ use Adshares\Common\Application\Service\Ads;
 use Adshares\Common\Application\Service\Exception\AdsException;
 use Illuminate\Database\Eloquent\Collection;
 
-use function factory;
-
 class DemandSendPaymentsTest extends ConsoleTestCase
 {
     public function testNoPayments(): void
@@ -46,7 +44,7 @@ class DemandSendPaymentsTest extends ConsoleTestCase
 
     public function testZeroPayment(): void
     {
-        factory(Payment::class)->create(['state' => Payment::STATE_NEW, 'fee' => 0]);
+        Payment::factory()->create(['state' => Payment::STATE_NEW, 'fee' => 0]);
 
         $this->artisan('ops:demand:payments:send')
             ->expectsOutput('Found 0 sendable payments.')
@@ -60,12 +58,12 @@ class DemandSendPaymentsTest extends ConsoleTestCase
     public function testHandle(): void
     {
         /** @var Collection|Payment[] $newPayments */
-        $newPayments = factory(Payment::class)
+        $newPayments = Payment::factory()
             ->times(9)
             ->create(['state' => Payment::STATE_NEW]);
 
         $newPayments->each(function (Payment $payment) {
-            factory(EventLog::class)->times(5)->create([
+            EventLog::factory()->times(5)->create([
                 'payment_id' => $payment->id,
                 'paid_amount' => 100,
             ]);
@@ -104,7 +102,7 @@ class DemandSendPaymentsTest extends ConsoleTestCase
 
     public function testAdsError(): void
     {
-        factory(Payment::class)->create(['state' => Payment::STATE_NEW, 'fee' => 1]);
+        Payment::factory()->create(['state' => Payment::STATE_NEW, 'fee' => 1]);
 
         $this->app->bind(
             Ads::class,

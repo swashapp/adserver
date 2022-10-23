@@ -44,14 +44,14 @@ final class CampaignTest extends TestCase
         $campaign = new Campaign(
             Uuid::v4(),
             Uuid::v4(),
-            'http://example.com',
+            'https://example.com',
             new CampaignDate(new DateTime(), (new DateTime())->modify('+1 hour'), new DateTime(), new DateTime()),
             [$banner],
             new Budget(1000000000000, 100000000000, null),
             self::sourceCampaign(),
             Status::toDelete(),
-            [],
-            []
+            'web',
+            null
         );
 
         $this->assertEquals(Status::STATUS_TO_DELETE, $campaign->getStatus());
@@ -69,14 +69,14 @@ final class CampaignTest extends TestCase
         $campaign = new Campaign(
             Uuid::v4(),
             Uuid::v4(),
-            'http://example.com',
+            'https://example.com',
             new CampaignDate(new DateTime(), (new DateTime())->modify('+1 hour'), new DateTime(), new DateTime()),
             [],
             new Budget(1000000000000, 100000000000, null),
             self::sourceCampaign(),
             Status::active(),
-            [],
-            []
+            'web',
+            null
         );
         $campaign->setBanners(new ArrayCollection([$banner]));
 
@@ -89,7 +89,7 @@ final class CampaignTest extends TestCase
 
     public function testToArray(): void
     {
-        $sourceAddress = '0001-00000001-0001';
+        $sourceAddress = '0001-00000001-8B4E';
         $sourceCreatedAt = (new DateTime())->modify('-1 day');
         $sourceUpdatedAt = (new DateTime())->modify('-5 hours');
         $createdAt = (new DateTime())->modify('-2 hours');
@@ -109,24 +109,25 @@ final class CampaignTest extends TestCase
         $demandCampaignId = Uuid::v4();
         $budget = 1000000000000;
         $maxCpc = 100000000000;
+        $medium = 'web';
 
         $campaign = new Campaign(
             $id,
             $demandCampaignId,
-            'http://example.com',
+            'https://example.com',
             new CampaignDate($dateStart, $dateEnd, $createdAt, $updatedAt),
             [],
             new Budget($budget, $maxCpc, null),
             $sourceHost,
             Status::active(),
-            [],
-            []
+            $medium,
+            null
         );
 
         $expected = [
             'id' => $id,
             'demand_campaign_id' => $demandCampaignId,
-            'landing_url' => 'http://example.com',
+            'landing_url' => 'https://example.com',
             'max_cpc' => $maxCpc,
             'max_cpm' => null,
             'budget' => $budget,
@@ -142,6 +143,8 @@ final class CampaignTest extends TestCase
             'targeting_requires' => [],
             'targeting_excludes' => [],
             'status' => Status::STATUS_ACTIVE,
+            'medium' => $medium,
+            'vendor' => null,
         ];
 
         $this->assertEquals($expected, $campaign->toArray());
@@ -157,13 +160,15 @@ final class CampaignTest extends TestCase
         $this->assertEquals($budget, $campaign->getBudget());
         $this->assertEquals($maxCpc, $campaign->getMaxCpc());
         $this->assertNull($campaign->getMaxCpm());
+        $this->assertEquals($medium, $campaign->getMedium());
+        $this->assertNull($campaign->getVendor());
     }
 
     private static function sourceCampaign(): SourceCampaign
     {
         return new SourceCampaign(
             'example.com',
-            '0001-00000001-0001',
+            '0001-00000001-8B4E',
             '0.1',
             new DateTime(),
             new DateTime()

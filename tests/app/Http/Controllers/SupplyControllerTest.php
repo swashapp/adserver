@@ -25,6 +25,7 @@ namespace Adshares\Adserver\Tests\Http\Controllers;
 
 use Adshares\Adserver\Client\GuzzleAdSelectClient;
 use Adshares\Adserver\Http\Utils;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\NetworkBanner;
 use Adshares\Adserver\Models\NetworkCampaign;
 use Adshares\Adserver\Models\NetworkHost;
@@ -32,6 +33,7 @@ use Adshares\Adserver\Models\Site;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\Zone;
 use Adshares\Adserver\Tests\TestCase;
+use Adshares\Common\Domain\ValueObject\WalletAddress;
 use Adshares\Supply\Application\Service\AdSelect;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
@@ -96,9 +98,9 @@ final class SupplyControllerTest extends TestCase
     {
         $host = 'https://example.com';
         $campaignId = 1;
-        factory(NetworkHost::class)->create(['host' => $host]);
-        factory(NetworkCampaign::class)->create(['id' => $campaignId, 'source_host' => $host]);
-        $banner = factory(NetworkBanner::class)->create(['id' => 1, 'network_campaign_id' => $campaignId]);
+        NetworkHost::factory()->create(['host' => $host]);
+        NetworkCampaign::factory()->create(['id' => $campaignId, 'source_host' => $host]);
+        $banner = NetworkBanner::factory()->create(['id' => 1, 'network_campaign_id' => $campaignId]);
 
         $response = $this->get(self::PAGE_WHY_URI . '?bid=' . $banner->uuid . '&cid=0123456789abcdef0123456789abcdef');
 
@@ -109,11 +111,11 @@ final class SupplyControllerTest extends TestCase
     {
         $this->mockAdSelect();
         /** @var User $user */
-        $user = factory(User::class)->create(['api_token' => '1234', 'auto_withdrawal' => 1e11]);
+        $user = User::factory()->create(['api_token' => '1234', 'auto_withdrawal' => 1e11]);
         /** @var Site $site */
-        $site = factory(Site::class)->create(['user_id' => $user->id, 'status' => Site::STATUS_ACTIVE]);
+        $site = Site::factory()->create(['user_id' => $user->id, 'status' => Site::STATUS_ACTIVE]);
         /** @var Zone $zone */
-        $zone = factory(Zone::class)->create(['site_id' => $site->id]);
+        $zone = Zone::factory()->create(['site_id' => $site->id]);
         $data = [
             'page' => [
                 'iid' => '0123456789ABCDEF0123456789ABCDEF',
@@ -131,6 +133,104 @@ final class SupplyControllerTest extends TestCase
         $response->assertJsonStructure([self::FOUND_BANNERS_STRUCTURE]);
     }
 
+    public function testFindWithoutZones(): void
+    {
+        $data = [
+            'page' => [
+                'iid' => '0123456789ABCDEF0123456789ABCDEF',
+                'url' => 'https://example.com',
+            ],
+        ];
+        $content = Utils::urlSafeBase64Encode(json_encode($data));
+
+        $response = self::call('POST', self::BANNER_FIND_URI, [], [], [], [], $content);
+
+        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+    }
+
+    public function testFindWithZonePayToExistingUserWhichIsAdvertiserOnly(): void
+    {
+        $this->mockAdSelect();
+        /** @var User $user */
+        $user = User::factory()->create([
+            'api_token' => '1234',
+            'auto_withdrawal' => 1e11,
+            'is_publisher' => 0,
+            'wallet_address' => WalletAddress::fromString('ads:0001-00000001-8B4E'),
+        ]);
+        /** @var Site $site */
+        $site = Site::factory()->create(['user_id' => $user->id, 'status' => Site::STATUS_ACTIVE]);
+        /** @var Zone $zone */
+        $zone = Zone::factory()->create(['site_id' => $site->id]);
+        $data = [
+            'page' => [
+                'iid' => '0123456789ABCDEF0123456789ABCDEF',
+                'url' => 'https://example.com',
+            ],
+            'zones' => [
+                ['zone' => $zone->uuid, 'pay-to' => 'ADS:0001-00000001-8B4E']
+            ],
+        ];
+        $content = Utils::urlSafeBase64Encode(json_encode($data));
+
+        $response = self::call('POST', self::BANNER_FIND_URI, [], [], [], [], $content);
+
+        $response->assertStatus(Response::HTTP_FORBIDDEN);
+    }
+
+    public function testFindWithZonePayToNonExistingUser(): void
+    {
+        $this->mockAdSelect();
+        $data = [
+            'page' => [
+                'iid' => '0123456789ABCDEF0123456789ABCDEF',
+                'url' => 'https://example.com',
+            ],
+            'zones' => [
+                [
+                    'width' => 300,
+                    'height' => 250,
+                    'pay-to' => 'ADS:0001-00000001-8B4E',
+                    'zone' => 'test-zone',
+                ]
+            ],
+        ];
+        $content = Utils::urlSafeBase64Encode(json_encode($data));
+
+        $response = self::call('POST', self::BANNER_FIND_URI, [], [], [], [], $content);
+
+        $response->assertStatus(Response::HTTP_OK);
+        $response->assertJsonStructure([self::FOUND_BANNERS_STRUCTURE]);
+    }
+
+    public function testFindWithZonePayToNonExistingUserWhenDefaultUserRoleDoesNotContainPublisher(): void
+    {
+        Config::updateAdminSettings([
+            Config::AUTO_REGISTRATION_ENABLED => '1',
+            Config::DEFAULT_USER_ROLES => 'advertiser',
+        ]);
+        $this->mockAdSelect();
+        $data = [
+            'page' => [
+                'iid' => '0123456789ABCDEF0123456789ABCDEF',
+                'url' => 'https://example.com',
+            ],
+            'zones' => [
+                [
+                    'width' => 300,
+                    'height' => 250,
+                    'pay-to' => 'ADS:0001-00000001-8B4E',
+                    'zone' => 'test-zone',
+                ]
+            ],
+        ];
+        $content = Utils::urlSafeBase64Encode(json_encode($data));
+
+        $response = self::call('POST', self::BANNER_FIND_URI, [], [], [], [], $content);
+
+        $response->assertStatus(Response::HTTP_FORBIDDEN);
+    }
+
     public function testFindNoData(): void
     {
         $response = self::post(self::BANNER_FIND_URI);
@@ -140,10 +240,66 @@ final class SupplyControllerTest extends TestCase
 
     public function testFindJson(): void
     {
+        Config::updateAdminSettings([Config::AUTO_REGISTRATION_ENABLED => '1']);
         $this->mockAdSelect();
-        $data = [
+        $response = self::post(self::SUPPLY_ANON_URI, self::findJsonData());
+
+        $response->assertStatus(Response::HTTP_OK);
+        $response->assertJsonStructure(self::FOUND_BANNERS_WITH_CREATION_STRUCTURE);
+        self::assertEquals('Decentraland (0, -10)', Site::first()->name);
+        self::assertDatabaseHas(
+            User::class,
+            [
+                'auto_withdrawal' => '100000000',
+                'wallet_address' => 'ads:0001-00000001-8B4E',
+            ]
+        );
+    }
+
+    public function testFindJsonWhenDefaultUserRoleDoesNotContainPublisher(): void
+    {
+        Config::updateAdminSettings([
+            Config::AUTO_REGISTRATION_ENABLED => '1',
+            Config::DEFAULT_USER_ROLES => 'advertiser',
+        ]);
+        $this->mockAdSelect();
+        $response = self::post(self::SUPPLY_ANON_URI, self::findJsonData());
+
+        $response->assertStatus(Response::HTTP_FORBIDDEN);
+    }
+
+    public function testFindJsonExistingUserIsAdvertiserOnly(): void
+    {
+        Config::updateAdminSettings([Config::AUTO_REGISTRATION_ENABLED => '1']);
+        User::factory()->create([
+            'is_publisher' => 0,
+            'wallet_address' => WalletAddress::fromString('ads:0001-00000001-8B4E'),
+        ]);
+        $this->mockAdSelect();
+        $response = self::post(self::SUPPLY_ANON_URI, self::findJsonData());
+        $response->assertStatus(Response::HTTP_FORBIDDEN);
+    }
+
+    public function testFindJsonNoAutoRegistration(): void
+    {
+        Config::updateAdminSettings([Config::AUTO_REGISTRATION_ENABLED => '0']);
+        $this->mockAdSelect();
+        $response = self::post(self::SUPPLY_ANON_URI, self::findJsonData());
+        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+    }
+
+    public function testFindJsonNoData(): void
+    {
+        $response = self::post(self::SUPPLY_ANON_URI);
+        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
+    }
+
+    private static function findJsonData(): array
+    {
+        return [
             'pay_to' => 'ADS:0001-00000001-8B4E',
             'view_id' => '0123456789ABCDEF0123456789ABCDEF',
+            'type' => 'image',
             'width' => 300,
             'height' => 250,
             'context' => [
@@ -154,25 +310,13 @@ final class SupplyControllerTest extends TestCase
             'medium' => 'metaverse',
             'vendor' => 'decentraland',
         ];
-        $response = self::post(self::SUPPLY_ANON_URI, $data);
-
-        $response->assertStatus(Response::HTTP_OK);
-        $response->assertJsonStructure(self::FOUND_BANNERS_WITH_CREATION_STRUCTURE);
-        self::assertEquals('Decentraland (0, -10)', Site::first()->name);
-    }
-
-    public function testFindJsonNoData(): void
-    {
-        $response = self::post(self::SUPPLY_ANON_URI);
-
-        $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 
     private function mockAdSelect(): void
     {
-        factory(NetworkCampaign::class)->create(['id' => 1]);
+        NetworkCampaign::factory()->create(['id' => 1]);
         /** @var NetworkBanner $networkBanner */
-        $networkBanner = factory(NetworkBanner::class)->create(['network_campaign_id' => 1]);
+        $networkBanner = NetworkBanner::factory()->create(['network_campaign_id' => 1]);
         $adSelectResponse = self::createMock(ResponseInterface::class);
         $adSelectResponse->method('getBody')
             ->willReturn(json_encode([[['banner_id' => $networkBanner->uuid, 'rpm' => '0.01']]]));

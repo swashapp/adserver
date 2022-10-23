@@ -387,7 +387,8 @@ class Utils
             return $tid;
         }
 
-        if ($request->get('stid')) {
+        $stid = $request->get('stid');
+        if ($stid && 'null' !== $stid && 'undefined' !== $stid) {
             $base = substr(sha1($request->get('stid'), true), 0, 16);
         } else {
             $base = self::binUserId($impressionId);
@@ -421,7 +422,7 @@ class Utils
             throw new RuntimeException('Id should be a 16-byte binary format string.');
         }
 
-        return substr(sha1($id . config('app.adserver_secret'), true), 0, 6);
+        return substr(sha1($id . config('app.key'), true), 0, 6);
     }
 
     public static function hexUuidFromBase64UrlWithChecksum(string $trackingId): string

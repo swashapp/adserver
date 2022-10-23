@@ -35,6 +35,7 @@ use Adshares\Common\Application\Dto\PageRank;
 use Adshares\Common\Application\Service\AdUser;
 use Adshares\Common\Exception\InvalidArgumentException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
@@ -74,6 +75,7 @@ class Site extends Model
     use SoftDeletes;
     use AutomateMutators;
     use BinHex;
+    use HasFactory;
 
     public const STATUS_DRAFT = 0;
 
@@ -222,9 +224,9 @@ class Site extends Model
         string $name,
         string $medium,
         ?string $vendor,
+        bool $onlyAcceptedBanners,
         int $status = Site::STATUS_ACTIVE,
         string $primaryLanguage = 'en',
-        bool $onlyAcceptedBanners = false,
         array $categoriesByUser = null,
         array $filtering = null
     ): Site {
@@ -283,7 +285,11 @@ class Site extends Model
             if (!SiteValidator::isUrlValid($url)) {
                 throw new InvalidArgumentException('Invalid URL');
             }
-            $site = Site::create($userId, $url, $name, $medium, $vendor);
+
+            $onlyAcceptedBanners =
+                Config::CLASSIFIER_LOCAL_BANNERS_ALL_BY_DEFAULT
+                !== config('app.site_classifier_local_banners');
+            $site = Site::create($userId, $url, $name, $medium, $vendor, $onlyAcceptedBanners);
         }
 
         return $site;

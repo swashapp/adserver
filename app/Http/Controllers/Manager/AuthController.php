@@ -30,12 +30,13 @@ use Adshares\Adserver\Mail\UserEmailChangeConfirm1Old;
 use Adshares\Adserver\Mail\UserEmailChangeConfirm2New;
 use Adshares\Adserver\Mail\UserPasswordChange;
 use Adshares\Adserver\Mail\UserPasswordChangeConfirm;
-use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\RefLink;
 use Adshares\Adserver\Models\Token;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\Site;
 use Adshares\Adserver\Models\Zone;
+use Adshares\Common\Application\Dto\ExchangeRate;
+use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Application\Service\AdsRpcClient;
 use Adshares\Common\Application\Service\Exception\ExchangeRateNotAvailableException;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
@@ -62,16 +63,13 @@ class AuthController extends Controller
 {
     private const ERROR_MESSAGE_INVALID_TOKEN = 'Invalid or outdated token';
 
-    private ExchangeRateReader $exchangeRateReader;
-
-    public function __construct(ExchangeRateReader $exchangeRateReader)
+    public function __construct(private readonly ExchangeRateReader $exchangeRateReader)
     {
-        $this->exchangeRateReader = $exchangeRateReader;
     }
 
     private function checkRegisterMode(?string $referralToken = null): ?RefLink
     {
-        $registrationMode = Config::fetchStringOrFail(Config::REGISTRATION_MODE);
+        $registrationMode = config('app.registration_mode');
         if (RegistrationMode::PRIVATE === $registrationMode) {
             throw new AccessDeniedHttpException('Private registration enabled');
         }
@@ -98,13 +96,13 @@ class AuthController extends Controller
 
         DB::beginTransaction();
         $user = User::registerWithEmail($data['email'], $data['password'], $refLink);
-        if (Config::isTrueOnly(Config::EMAIL_VERIFICATION_REQUIRED)) {
+        if (config('app.email_verification_required')) {
             $token = Token::generate(Token::EMAIL_ACTIVATE, $user);
             $mailable = new UserEmailActivate($token->uuid, $request->input('uri'));
             Mail::to($user)->queue($mailable);
         } else {
             $this->confirmEmail($user);
-            if (Config::isTrueOnly(Config::AUTO_CONFIRMATION_ENABLED)) {
+            if (config('app.auto_confirmation_enabled')) {
                 $this->confirmAdmin($user);
             }
             $user->saveOrFail();
@@ -133,7 +131,7 @@ class AuthController extends Controller
         }
 
         $this->confirmEmail($user);
-        if (Config::isTrueOnly(Config::AUTO_CONFIRMATION_ENABLED)) {
+        if (config('app.auto_confirmation_enabled')) {
             $this->confirmAdmin($user);
         }
         $user->save();
@@ -170,6 +168,9 @@ class AuthController extends Controller
 
         /** @var User $user */
         $user = Auth::user();
+        if (null === $user->email) {
+            throw new UnprocessableEntityHttpException('User does not have an email account');
+        }
 
         DB::beginTransaction();
 
@@ -299,7 +300,7 @@ class AuthController extends Controller
     public function check(int $code = Response::HTTP_OK): JsonResponse
     {
         try {
-            $exchangeRate = $this->exchangeRateReader->fetchExchangeRate()->toArray();
+            $exchangeRate = $this->getAppToDisplayExchangeRate()->toArray();
         } catch (ExchangeRateNotAvailableException $exception) {
             Log::error(sprintf('[AuthController] Cannot fetch exchange rate: %s', $exception->getMessage()));
             $exchangeRate = null;
@@ -313,8 +314,8 @@ class AuthController extends Controller
                 $user->toArray(),
                 [
                     'exchange_rate' => $exchangeRate,
-                    'referral_refund_enabled' => Config::isTrueOnly(Config::REFERRAL_REFUND_ENABLED),
-                    'referral_refund_commission' => Config::fetchFloatOrFail(Config::REFERRAL_REFUND_COMMISSION),
+                    'referral_refund_enabled' => config('app.referral_refund_enabled'),
+                    'referral_refund_commission' => config('app.referral_refund_commission'),
                 ]
             ),
             $code
@@ -371,9 +372,9 @@ MSG;
 
         $message = sprintf(
             $message,
-            config('app.name'),
-            new SecureUrl((string)config('app.terms_url')),
-            new SecureUrl((string)config('app.privacy_url')),
+            config('app.adserver_name'),
+            new SecureUrl(route('terms-url')),
+            new SecureUrl(route('privacy-url')),
             date(DateTimeInterface::RFC2822)
         );
 
@@ -403,7 +404,7 @@ MSG;
             DB::beginTransaction();
             $refLink = $this->checkRegisterMode($request->input('referral_token') ?? null);
             $user = User::registerWithWallet($address, false, $refLink);
-            if (Config::isTrueOnly(Config::AUTO_CONFIRMATION_ENABLED)) {
+            if (config('app.auto_confirmation_enabled')) {
                 $this->confirmAdmin($user);
             }
             $user->saveOrFail();
@@ -619,12 +620,21 @@ MSG;
     {
         if (null !== $user->refLink && null !== $user->refLink->bonus && $user->refLink->bonus > 0) {
             try {
-                $exchangeRate = $this->exchangeRateReader->fetchExchangeRate();
+                $exchangeRate = $this->getAppToDisplayExchangeRate();
                 $user->awardBonus($exchangeRate->toClick($user->refLink->bonus), $user->refLink);
             } catch (ExchangeRateNotAvailableException $exception) {
                 Log::error(sprintf('[AuthController] Cannot fetch exchange rate: %s', $exception->getMessage()));
             }
         }
+    }
+
+    private function getAppToDisplayExchangeRate(): ExchangeRate
+    {
+        $appCurrency = Currency::from(config('app.currency'));
+        return match ($appCurrency) {
+            Currency::ADS => $this->exchangeRateReader->fetchExchangeRate(),
+            default => ExchangeRate::ONE($appCurrency),
+        };
     }
 
     private function sendCrmMailOnUserRegistered(User $user): void

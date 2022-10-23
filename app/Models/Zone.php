@@ -27,6 +27,7 @@ use Adshares\Adserver\Models\Traits\BinHex;
 use Adshares\Adserver\Services\Publisher\SiteCodeGenerator;
 use Adshares\Supply\Domain\ValueObject\Size;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -56,6 +57,7 @@ class Zone extends Model
     use SoftDeletes;
     use AutomateMutators;
     use BinHex;
+    use HasFactory;
 
     public const STATUS_DRAFT = 0;
 
@@ -134,7 +136,7 @@ class Zone extends Model
 
         return Cache::remember(
             'zones.' . $uuid,
-            (int)config('app.network_data_cache_ttl'),
+            config('app.network_data_cache_ttl'),
             function () use ($binId) {
                 return self::where('uuid', $binId)->with(
                     [

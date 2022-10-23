@@ -33,6 +33,7 @@ use Adshares\Common\Domain\ValueObject\SecureUrl;
 use DateTime;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -57,7 +58,7 @@ use InvalidArgumentException;
  * @property float bid
  * @property int budget
  * @property string medium
- * @property string $vendor
+ * @property string|null $vendor
  * @property int max_cpc
  * @property int max_cpm
  * @property array|null|string targeting_requires
@@ -81,6 +82,7 @@ class Campaign extends Model
     use AutomateMutators;
     use BinHex;
     use DateAtom;
+    use HasFactory;
 
     public const STATUS_DRAFT = 0;
 

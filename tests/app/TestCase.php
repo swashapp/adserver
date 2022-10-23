@@ -22,19 +22,26 @@
 namespace Adshares\Adserver\Tests;
 
 use Adshares\Ads\AdsClient;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\User;
+use Adshares\Adserver\Utilities\DatabaseConfigReader;
 use Adshares\Common\Application\Service\Ads;
 use Adshares\Common\Application\Service\AdsRpcClient;
 use Adshares\Common\Application\Service\AdUser;
 use Adshares\Common\Application\Service\ExchangeRateRepository;
 use Adshares\Mock\Client\DummyAdsClient;
+use Adshares\Mock\Client\DummyAdSelectClient;
 use Adshares\Mock\Client\DummyAdsRpcClient;
 use Adshares\Mock\Client\DummyAdUserClient;
+use Adshares\Mock\Client\DummyDemandClient;
 use Adshares\Mock\Client\DummyExchangeRateRepository;
+use Adshares\Supply\Application\Service\AdSelect;
+use Adshares\Supply\Application\Service\DemandClient;
 use Faker\Factory;
 use Faker\Generator;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
 abstract class TestCase extends BaseTestCase
@@ -50,8 +57,26 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
         Mail::fake();
+        Queue::fake();
         Storage::fake(self::DISK);
         $this->faker = Factory::create();
+
+        Config::updateAdminSettings(
+            [
+                Config::ADPANEL_URL => 'http://adpanel',
+                Config::ADSHARES_ADDRESS => '0001-00000005-CBCA',
+                Config::ADSHARES_LICENSE_SERVER_URL => 'http://license-server',
+                Config::ADSHARES_SECRET => 'CA978112CA1BBDCAFAC231B39A23DC4DA786EFF8147C4E72B9807785AFEE48BB',
+                Config::CLASSIFIER_EXTERNAL_API_KEY_NAME => 'api_key_name',
+                Config::CLASSIFIER_EXTERNAL_API_KEY_SECRET => 'api_key_secret',
+                Config::CLASSIFIER_EXTERNAL_BASE_URL => 'http://classifier',
+                Config::CLASSIFIER_EXTERNAL_NAME => 'test_classifier',
+                Config::CLASSIFIER_EXTERNAL_PUBLIC_KEY =>
+                    'D69BCCF69C2D0F6CED025A05FA7F3BA687D1603AC1C8D9752209AC2BBF2C4D17',
+            ]
+        );
+        DatabaseConfigReader::overwriteAdministrationConfig();
+
         $adsClient = $this->app->make(AdsClient::class);
 
         $this->app->bind(
@@ -73,9 +98,21 @@ abstract class TestCase extends BaseTestCase
             }
         );
         $this->app->bind(
+            AdSelect::class,
+            function () {
+                return new DummyAdSelectClient();
+            }
+        );
+        $this->app->bind(
             AdUser::class,
             static function () {
                 return new DummyAdUserClient();
+            }
+        );
+        $this->app->bind(
+            DemandClient::class,
+            static function () {
+                return new DummyDemandClient();
             }
         );
     }
@@ -83,7 +120,7 @@ abstract class TestCase extends BaseTestCase
     protected function login(User $user = null): User
     {
         if (null === $user) {
-            $user = factory(User::class)->create();
+            $user = User::factory()->create();
         }
         $this->actingAs($user, 'api');
         return $user;
