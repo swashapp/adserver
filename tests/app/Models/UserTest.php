@@ -108,4 +108,12 @@ class UserTest extends TestCase
         $this->assertEquals(100, $user->auto_withdrawal_limit);
         $this->assertTrue($user->is_auto_withdrawal);
     }
+
+    public function testGenerateRandomETHWalletForSwash(): void
+    {
+        $rnd = User::generateRandomETHWalletForSwash();
+        $rnd2 = User::generateRandomETHWalletForSwash();
+        $this->assertEquals(42, strlen($rnd));
+        $this->assertNotEquals($rnd, $rnd2);
+    }
 }

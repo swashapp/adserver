@@ -418,6 +418,30 @@ MSG;
         return response()->json([], Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 
+    public function swashRegister(Request $request): JsonResponse
+    {
+        try {
+            new WalletAddress('eth', $request->input('address'));
+        } catch (InvalidArgumentException $exception) {
+            throw new UnprocessableEntityHttpException('Invalid wallet address');
+        }
+        $user = User::fetchBySwashWalletAddress($request->input('address'));
+        
+        if (null === $user) {
+            DB::beginTransaction();
+            $address = new WalletAddress('eth', User::generateRandomETHWalletForSwash());
+
+            $user = User::registerWithWallet($address, false);
+            $user->swash_wallet_address = $request->input('address');
+            if (Config::isTrueOnly(Config::AUTO_CONFIRMATION_ENABLED)) {
+                $this->confirmAdmin($user);
+            }
+            $user->saveOrFail();
+            DB::commit();
+        }
+        return response()->json(['sAdId' => $user->wallet_address->toString()]);
+    }
+
     public function logout(): JsonResponse
     {
         Auth::user()->clearApiKey();

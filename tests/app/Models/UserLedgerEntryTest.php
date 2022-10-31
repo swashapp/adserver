@@ -32,6 +32,218 @@ use DateTimeImmutable;
 
 final class UserLedgerEntryTest extends TestCase
 {
+    public function testGetFirstRecordByBatchId(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(-100, $ledgerEntry2->amount);
+        self::assertEquals(UserLedgerEntry::STATUS_PENDING, $ledgerEntry2->status);
+
+        $batchId = 'and Invalid Batch Id';
+        
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertNull($ledgerEntry2);
+    }
+
+    public function testFailAllRecordsInBatch(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        UserLedgerEntry::failAllRecordsInBatch($batchId, UserLedgerEntry::STATUS_NET_ERROR);
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(UserLedgerEntry::STATUS_NET_ERROR, $ledgerEntry2->status);
+    }
+
+    public function testAcceptAllRecordsInBatch(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        $txid = '1234';
+        UserLedgerEntry::acceptAllRecordsInBatch($batchId, $txid);
+        $ledgerEntry2 = UserLedgerEntry::getFirstRecordByBatchId($batchId);
+        self::assertEquals(UserLedgerEntry::STATUS_ACCEPTED, $ledgerEntry2->status);
+        self::assertEquals($txid, $ledgerEntry2->txid);
+    }
+
+    public function testBalancesByBatchId(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $this->createBatchEntries($batchId);
+        $txid = '1234';
+        UserLedgerEntry::acceptAllRecordsInBatch($batchId, $txid);
+        $balances = UserLedgerEntry::balancesByBatchId($batchId);
+        
+        self::assertCount(4, $balances);
+        self::assertEquals('0x0002D752001721d43d8F04AC4FDfb7aE2784E001', $balances[0]['uid']);
+        self::assertEquals(100, $balances[0]['ads']);
+    }
+    
+    public function testAllWalletBalanceIfAny(): void
+    {
+        $users = array(
+            factory(User::class)->create(),
+            factory(User::class)->create(),
+            factory(User::class)->create(),
+            factory(User::class)->create());
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->saveOrFail();
+        $this->createSomeEntries($users[0]);
+        
+        // User[1] has no any entires. sum is zero
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->saveOrFail();
+        
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_AD_INCOME,
+                'amount' => 10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_WITHDRAWAL,
+                'amount' => -10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+
+        // User[2]
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->saveOrFail();
+        $this->createSomeEntries($users[2]);
+        // User3 has entires, but its not a swash user
+        $this->createSomeEntries($users[3]);
+
+        $total = UserLedgerEntry::getWalletBalanceForSwashUsers();
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        self::assertTrue($total < UserLedgerEntry::getWalletBalanceForAllUsers());
+        // user[3] is not a swash user. its balance should affect getWalletBalanceForAllUsers, but not getWalletBalanceForSwashUsers
+
+        self::assertCount(2, $balances);
+        foreach ($balances as $entry) {
+            if($entry['wallet'] === $users[0]->swash_wallet_address) {
+                self::assertEquals(50, $entry['share']);
+            }
+            if($entry['wallet'] === $users[1]->swash_wallet_address) {
+                self::assertEquals(false, true);
+            }
+        }
+    }
+
+    public function testSuccessThenIfAny(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->saveOrFail();
+        $this->createAllEntries($users[0]);
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->saveOrFail();
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_AD_INCOME,
+                'amount' => 10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_WITHDRAWAL,
+                'amount' => -10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        // User2 has no any entires
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->saveOrFail();
+        $this->createAllEntries($users[2]);
+        
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        
+        foreach ($balances as $entry) {
+            $user = null;
+            foreach ($users as $uItem) {
+                if($uItem->swash_wallet_address === $entry['wallet']){
+                    $user = $uItem;
+                }
+            }
+            UserLedgerEntry::constructSwash(
+                $batchId,
+                $user->id,
+                -$entry['share']
+            )->save();
+        }
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        self::assertCount(0, $balances);
+        $txid = '1234';
+        UserLedgerEntry::acceptAllRecordsInBatch($batchId, $txid);
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        self::assertCount(0, $balances);
+    }
+
+    public function testFailThenIfAny(): void
+    {
+        $batchId = hash('sha256', strval(microtime(true)) );
+        $users = array(factory(User::class)->create(),factory(User::class)->create(),factory(User::class)->create());
+        $users[0]->swash_wallet_address = '0x0001D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[0]->saveOrFail();
+        $this->createAllEntries($users[0]);
+        $users[1]->swash_wallet_address = '0x0002D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[1]->saveOrFail();
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_AD_INCOME,
+                'amount' => 10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        
+        factory(UserLedgerEntry::class)->create(
+            [
+                'status' => UserLedgerEntry::STATUS_ACCEPTED,
+                'type' => UserLedgerEntry::TYPE_WITHDRAWAL,
+                'amount' => -10,
+                'user_id' => $users[1]->id,
+            ]
+        );
+        // User2 has no any entires
+        $users[2]->swash_wallet_address = '0x0003D752001721d43d8F04AC4FDfb7aE2784E8AF';
+        $users[2]->saveOrFail();
+        $this->createAllEntries($users[2]);
+        
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        
+        foreach ($balances as $entry) {
+            $user = null;
+            foreach ($users as $uItem) {
+                if($uItem->swash_wallet_address === $entry['wallet']){
+                    $user = $uItem;
+                }
+            }
+            UserLedgerEntry::constructSwash(
+                $batchId,
+                $user->id,
+                -$entry['share']
+            )->save();
+        }
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        self::assertCount(0, $balances);
+        UserLedgerEntry::failAllRecordsInBatch($batchId, UserLedgerEntry::STATUS_NET_ERROR);
+        $balances = UserLedgerEntry::allWalletBalanceIfAny();
+        // If a transaction is failed, it should be checked manually. 
+        self::assertCount(0, $balances);
+    }
+
     public function testBalance(): void
     {
         /** @var User $user */
@@ -300,6 +512,29 @@ final class UserLedgerEntryTest extends TestCase
         self::assertEquals(0, $user2->getBalance());
         self::assertEquals(0, $user2->getWalletBalance());
         self::assertEquals(0, $user2->getBonusBalance());
+    }
+
+    private function createBatchEntries(string $batchId): void
+    {
+        $entries = [
+            100,
+            40,
+            1,
+            11,
+        ];
+        $row = 0;
+        foreach ($entries as $entry) {
+            $row = $row + 1;
+            $user = factory(User::class)->create();
+            $user->swash_wallet_address = sprintf('0x0002D752001721d43d8F04AC4FDfb7aE2784E%03d', $row);
+            $user->save();
+            UserLedgerEntry::constructSwash(
+                $batchId,
+                $user->id,
+                -$entry
+            )->save();
+            
+        }
     }
 
     private function createSomeEntries(User $user): void

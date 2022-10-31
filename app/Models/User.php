@@ -309,6 +309,11 @@ class User extends Authenticatable
         return self::where('wallet_address', $address)->first();
     }
 
+    public static function fetchBySwashWalletAddress(string $address): ?self
+    {
+        return self::where('swash_wallet_address', $address)->first();
+    }
+
     public static function findByAutoWithdrawal(): Collection
     {
         return self::whereNotNull('auto_withdrawal')->get();
@@ -464,5 +469,12 @@ class User extends Authenticatable
     public static function fetchEmails(): Collection
     {
         return self::where('subscribe', 1)->whereNotNull('email')->get()->pluck('email');
+    }
+
+    public static function generateRandomETHWalletForSwash(): string {
+        // An eth address contains 40 hexadecimals. I use 40 random hex chars.
+        // At the moment I don't use the db, but in the future we may use users count, ...
+
+        return '0x' . substr( hash('sha256', strval(rand(1,1000000) * microtime(true)) ), 0, 40); 
     }
 }
