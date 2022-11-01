@@ -529,13 +529,16 @@ class SupplyController extends Controller
         $response = new StreamedResponse();
         $response->setCallback(
             static function () use ($jsPath, $params) {
+                $defaultSite = config('app.default_site_js');
                 echo str_replace(
                     [
                         '{{ ORIGIN }}',
                         '{{ SELECTOR }}',
+                        '{{ DEFAULTSITE }}'
                     ],
                     $params,
-                    file_get_contents($jsPath)
+                    file_get_contents($jsPath),
+                    $defaultSite
                 );
             }
         );

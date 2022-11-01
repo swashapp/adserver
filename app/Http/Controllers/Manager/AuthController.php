@@ -34,6 +34,8 @@ use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\RefLink;
 use Adshares\Adserver\Models\Token;
 use Adshares\Adserver\Models\User;
+use Adshares\Adserver\Models\Site;
+use Adshares\Adserver\Models\Zone;
 use Adshares\Common\Application\Service\AdsRpcClient;
 use Adshares\Common\Application\Service\Exception\ExchangeRateNotAvailableException;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
@@ -439,7 +441,28 @@ MSG;
             $user->saveOrFail();
             DB::commit();
         }
-        return response()->json(['sAdId' => $user->wallet_address->toString()]);
+        $site = Site::fetchOrCreate(
+            $user->id,
+            config('app.default_site_js'),
+            'website',
+            null
+        );
+        $ad_zones = array();
+        foreach (config('app.swash_default_zones') as $zone_info) {
+            $zoneObject = Zone::fetchOrCreate(
+                $site->id,
+                "{$zone_info['width']}x{$zone_info['height']}",
+                $zone_info['name']
+            );
+            $ad_zones[] = array(
+                'name' => $zone_info['name'],
+                'width' => $zone_info['width'],
+                'height' => $zone_info['height'],
+                'uuid' => $zoneObject->uuid,
+            );
+        }
+
+        return response()->json(['sAdId' => $user->wallet_address->toString(), 'zones' => $ad_zones]);
     }
 
     public function logout(): JsonResponse
