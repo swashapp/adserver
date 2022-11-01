@@ -991,7 +991,8 @@ class AuthControllerTest extends TestCase
         );
         $response->assertStatus(Response::HTTP_OK);
         $response->assertJsonStructure([
-            'sAdId'
+            'sAdId',
+            'zones' => [ 0 => ["name", "width", "height", "uuid"]]
         ]);
         $sadId = $response->json()['sAdId'];
 
