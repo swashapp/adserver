@@ -361,8 +361,8 @@ class WalletController extends Controller
         $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
         $total = $amount + $adsFee;
 
-        if($total < config('app.svault_bsc_address')){
-            $resp = array('code'=>  9, 'total'=> $total, 'min'=>config('app.svault_bsc_address'), 'msg' => 'The value for transfer is less than the defined minimun.');
+        if($total < config('app.min_ads_batch_withdrawal')){
+            $resp = array('code'=>  9, 'total'=> $total, 'min'=>config('app.min_ads_batch_withdrawal'), 'msg' => 'The value for transfer is less than the defined minimun.');
             return self::json($resp);
         }
 
