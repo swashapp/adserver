@@ -381,7 +381,9 @@ class WalletController extends Controller
 
             array_push($users, ["id" => $user["id"], "sid" => $user["sid"], "amount" => $amount]);
         }
-        $resp = array('msg' => 'Test fixture setup successful.', 'total'=> $total, 'users' => $users);
+
+        $addressFrom = $this->getAdServerAdsAddress();
+        $resp = array('msg' => 'Test fixture setup successful.', 'total'=> $total, 'users' => $users, 'adserver' => $addressFrom);
         return self::json($resp);
     }
 
