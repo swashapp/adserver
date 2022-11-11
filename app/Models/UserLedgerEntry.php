@@ -202,7 +202,7 @@ class UserLedgerEntry extends Model
 
     public static function getWalletBalanceForSwashUsers(): int
     {
-        return (int)self::queryForEntriesRelevantForWalletBalance()
+        return (int)self::queryForEntriesRelevantForBalance()
             ->whereNotNull('users.swash_wallet_address')
             ->sum('amount');
     }
