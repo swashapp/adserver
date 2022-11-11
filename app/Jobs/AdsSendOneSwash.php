@@ -136,7 +136,7 @@ class AdsSendOneSwash implements ShouldQueue
 
         $txid = $response->getTx()->getId();
 
-        if ($this->isTxValid($txid)) {
+        if ($this->isTxInvalid($txid)) {
             UserLedgerEntry::failAllRecordsInBatch($this->batchId, UserLedgerEntry::STATUS_SYS_ERROR);
 
             Log::error(sprintf('[AdsSendOneSwash] Invalid txid: (%s)', $txid));
@@ -146,7 +146,7 @@ class AdsSendOneSwash implements ShouldQueue
         UserLedgerEntry::acceptAllRecordsInBatch($this->batchId, $txid);
     }
 
-    private function isTxValid(string $txid){
+    private function isTxInvalid(string $txid){
         return !$txid || !AdsValidator::isTransactionIdValid($txid);
     }
 
