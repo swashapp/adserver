@@ -351,38 +351,38 @@ class WalletController extends Controller
 
         $total = 0;
 
-        $amount_min =       90000000000;
-        $amount_noise_max = 20000000000;
+        $amount_min =       10000000000;
+        $amount_noise_max =  5000000000;
         
         $availableSwashUsers = [
-            [ "id" => "eth:0x43363233ad6eabac88a8622e0a91a0f45ddf82f8", "sid" => "0xf4A0De997D52cAab01105CA31557A5b147c51F11"],
-            [ "id" => "eth:0x8b772df592abc6f40323e416ffe314348fda3582", "sid" => "0xf4A0De997D52cAab01105CA31557A5b147c51F12"],
-            [ "id" => "eth:0xe6b755e9e24a4d746d968c5322fb54d5a5fab371", "sid" => "0x512Befd36e862075163F1568a40c019B59C02824"],
-            [ "id" => "eth:0x96245f6a003c6f00e3fef61d6175e3471bacd288", "sid" => "0x8B085eDd400f88Fef614c6504C366718e70fB73a"],
-            [ "id" => "eth:0x6cf1a1114e4aeae54a79691cd6429e5d961d6d92", "sid" => "0xAC0AD9086eEc66ec1271f2749AcDbA151de789eB"],
-            [ "id" => "eth:0x150a97c4d1f8d8c30bbfb06859606d37fb77b6d8", "sid" => "0x5821cbaE724d7554641604EEbdf7bDAb0b500595"],
-            [ "id" => "eth:0x101035d29f2fa05424424ea994ae945f02981073", "sid" => "0x25147a7B77c5704E8Ca40A80dF0dDD826B3853Ca"],
-            [ "id" => "eth:0x80898fb04bebeb56cd0de6af38b96d443cadcd2d", "sid" => "0xEd8cd7069fFAaB1C0D52cd84f3E37a47a0C1fcE9"],
-            [ "id" => "eth:0xc510946f082f9bbbff12cf898b2d33fd74019b30", "sid" => "0x8A71b0ceCecdC75f1A81094Bb3d7fC21bf7FbDc9"],
-            [ "id" => "eth:0xb3c7b4d947b3086da6e400c6397579d83251d153", "sid" => "0x662969E51De2189dcE5CAcFaB8d3876EE8801bD2"],
-            [ "id" => "eth:0xe4c0e9530a4cde9529eafbb7645e6b03b2266275", "sid" => "0xdeF6B932D20cEf2caD22cBd8A918196Aed06CCA4"],
-            [ "id" => "eth:0x43c8d4a46cbf196d7fac3c67a298e88580d002e2", "sid" => "0x5319dd412AdB2770ef4ECE1743eB6e81ACf77D2A"],
-            [ "id" => "eth:0xf99a599017e48e737f674bef82046b9a97cb7c1b", "sid" => "0x5aD475289DdeFa1d776C8C0F296a20b25244D5f8"]
+            [ "id" => 28, "wallet" => "eth:0x43363233ad6eabac88a8622e0a91a0f45ddf82f8", "sid" => "0xf4A0De997D52cAab01105CA31557A5b147c51F11"],
+            [ "id" => 29, "wallet" => "eth:0x8b772df592abc6f40323e416ffe314348fda3582", "sid" => "0xf4A0De997D52cAab01105CA31557A5b147c51F12"],
+            [ "id" => 33, "wallet" => "eth:0xe6b755e9e24a4d746d968c5322fb54d5a5fab371", "sid" => "0x512Befd36e862075163F1568a40c019B59C02824"],
+            [ "id" => 34, "wallet" => "eth:0x96245f6a003c6f00e3fef61d6175e3471bacd288", "sid" => "0x8B085eDd400f88Fef614c6504C366718e70fB73a"],
+            [ "id" => 36, "wallet" => "eth:0x6cf1a1114e4aeae54a79691cd6429e5d961d6d92", "sid" => "0xAC0AD9086eEc66ec1271f2749AcDbA151de789eB"],
+            [ "id" => 37, "wallet" => "eth:0x150a97c4d1f8d8c30bbfb06859606d37fb77b6d8", "sid" => "0x5821cbaE724d7554641604EEbdf7bDAb0b500595"],
+            [ "id" => 38, "wallet" => "eth:0x101035d29f2fa05424424ea994ae945f02981073", "sid" => "0x25147a7B77c5704E8Ca40A80dF0dDD826B3853Ca"],
+            [ "id" => 39, "wallet" => "eth:0x80898fb04bebeb56cd0de6af38b96d443cadcd2d", "sid" => "0xEd8cd7069fFAaB1C0D52cd84f3E37a47a0C1fcE9"],
+            [ "id" => 40, "wallet" => "eth:0xc510946f082f9bbbff12cf898b2d33fd74019b30", "sid" => "0x8A71b0ceCecdC75f1A81094Bb3d7fC21bf7FbDc9"],
+            [ "id" => 41, "wallet" => "eth:0xb3c7b4d947b3086da6e400c6397579d83251d153", "sid" => "0x662969E51De2189dcE5CAcFaB8d3876EE8801bD2"],
+            [ "id" => 42, "wallet" => "eth:0xe4c0e9530a4cde9529eafbb7645e6b03b2266275", "sid" => "0xdeF6B932D20cEf2caD22cBd8A918196Aed06CCA4"],
+            [ "id" => 43, "wallet" => "eth:0x43c8d4a46cbf196d7fac3c67a298e88580d002e2", "sid" => "0x5319dd412AdB2770ef4ECE1743eB6e81ACf77D2A"],
+            [ "id" => 44, "wallet" => "eth:0xf99a599017e48e737f674bef82046b9a97cb7c1b", "sid" => "0x5aD475289DdeFa1d776C8C0F296a20b25244D5f8"]
         ];
 
-        $rand_keys = array_rand($availableSwashUsers, rand(2, count($availableSwashUsers)));
+        $rand_keys = array_rand($availableSwashUsers, rand(3, 6));
         $users = array();
         foreach ($rand_keys as $array_index) {
             $user = $availableSwashUsers[$array_index];
             $amount = $amount_min + rand(0, $amount_noise_max);
             $total = $total + $amount;
 
-            UserLedgerEntry::insertUserBonus(User::fetchByWalletAddress(WalletAddress::fromString($user['id']))->id, $amount);
+            UserLedgerEntry::insertUserBonus($user["id"], $amount);
 
-            array_push($users, ["id" => $user["id"], "sid" => $user["sid"], "amount" => $amount]);
+            array_push($users, ["id" => $user["id"], "wallet" => $user["wallet"], "sid" => $user["sid"], "amount" => $amount]);
         }
 
-        $addressFrom = $this->getAdServerAdsAddress();
+        $addressFrom = config('app.adshares_address');
         $resp = array('msg' => 'Test fixture setup successful.', 'total'=> $total, 'users' => $users, 'adserver' => $addressFrom);
         return self::json($resp);
     }
