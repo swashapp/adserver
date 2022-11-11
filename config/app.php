@@ -117,6 +117,7 @@ return [
     'adshares_node_host' => env('ADSHARES_NODE_HOST'),
     'adshares_node_port' => env('ADSHARES_NODE_PORT'),
     'svault_bsc_address' => env('SVAULT_BSC_ADDRESS'),
+    'min_ads_batch_withdrawal' => env('MIN_ADS_BATCH_WITHDRAWAL'),
     'adshares_secret' => env('ADSHARES_SECRET'),
     'adshares_command' => env('ADSHARES_COMMAND'),
     'adshares_workingdir' => env('ADSHARES_WORKINGDIR'),

@@ -357,14 +357,14 @@ class WalletController extends Controller
         $balanceTotal = UserLedgerEntry::getWalletBalanceForSwashUsers();
         $users_balances = UserLedgerEntry::allWalletBalanceIfAny();
 
-        if($balanceTotal ==0){
-            $resp = array('code'=>  9, 'total'=> $balanceTotal, 'msg' => 'No income for Swash users.');
-            return self::json($resp);
-        }
-
         $amount = AdsUtils::calculateAmount($addressFrom, $addressTo, $balanceTotal);
         $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
         $total = $amount + $adsFee;
+
+        if($total < config('app.svault_bsc_address')){
+            $resp = array('code'=>  9, 'total'=> $total, 'min'=>config('app.svault_bsc_address'), 'msg' => 'The value for transfer is less than the defined minimun.');
+            return self::json($resp);
+        }
 
         if ($balanceTotal < $total) {
             throw new UnprocessableEntityHttpException(sprintf('Insufficient total: %d, fee: %d', $balanceTotal, $adsFee));
