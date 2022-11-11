@@ -377,7 +377,7 @@ class WalletController extends Controller
             $amount = $amount_min + rand(0, $amount_noise_max);
             $total = $total + $amount;
 
-            UserLedgerEntry::insertUserBonus($user['id'], $amount);
+            UserLedgerEntry::insertUserBonus(User::fetchByWalletAddress(WalletAddress::fromString($user['id']))->id, $amount);
 
             array_push($users, ["id" => $user["id"], "sid" => $user["sid"], "amount" => $amount]);
         }
