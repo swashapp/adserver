@@ -287,10 +287,12 @@ return [
     ],
 
     'swash_default_zones' => [
-        ['name' => 'Medium Rectangle', 'width' => '300', 'height' => '250'],
-        ['name' => 'Large Rectangle', 'width' => '336', 'height' => '280'],
-        ['name' => 'Leaderboard', 'width' => '728', 'height' => '90'],
-        ['name' => 'Half Page', 'width' => '300', 'height' => '600'],
-        ['name' => 'Large Mobile Banner', 'width' => '320', 'height' => '100'],
+        ['name' => '320x100', 'width' => '320', 'height' => '100'],
+        ['name' => '250x250', 'width' => '250', 'height' => '250'],
+        ['name' => '512x512', 'width' => '512', 'height' => '512'],
+        ['name' => '234x60', 'width' => '234', 'height' => '60'],
+        ['name' => '980x120', 'width' => '980', 'height' => '120'],
+        ['name' => '300x600', 'width' => '300', 'height' => '600'],
+        ['name' => '240x400', 'width' => '240', 'height' => '400'],
     ]
 ];
