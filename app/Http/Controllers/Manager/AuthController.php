@@ -56,6 +56,7 @@ use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Throwable;
@@ -461,6 +462,10 @@ MSG;
             }
             $user->saveOrFail();
             DB::commit();
+        }
+        if(!config('app.foreign_default_site_js')){
+            Log::error(sprintf('foreign_default_site_js is not set in the config'));
+            throw new HttpException(Response::HTTP_INTERNAL_SERVER_ERROR);
         }
         $site = Site::fetchOrCreate(
             $user->id,
