@@ -132,7 +132,7 @@ final class SupplyControllerTest extends TestCase
         $js_content = $response->streamedContent();
         // I test here manually by removing the key from .env file
         if (strlen(config('app.foreign_default_site_js')) === 0){
-            $this->assertStringContainsString('defaultLocation=""', $js_content);    
+            $this->assertStringContainsString('defaultLocation=""', $js_content);
         }else{
             $this->assertStringContainsString('defaultLocation="'. config('app.foreign_default_site_js'). '"', $js_content);
         }
