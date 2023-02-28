@@ -210,8 +210,34 @@ var prepareElement = function (context, banner, element, contextParam) {
 };
 
 var prepareFullScreenLink = function (url) {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .swash-fullscreen-link {
+        width: 70px;
+        height: 70px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: absolute !important;
+        top: calc(100% - 96px) !important;
+        left: 96px !important;
+        background-color: #0006 !important;
+        border-radius: 20px;
+        z-index: 1;
+      }
+      
+      .swash-fullscreen-link:hover {
+        background: #0004;
+      }
+        
+      .swash-fullscreen-link:active {
+        box-shadow: inset 0 0 10px #0003;
+      }
+    `;
+    document.querySelector('head').appendChild(style);
+
     var div = document.createElement('div');
-    div.setAttribute('style', 'width: 70px; height: 70px; display: flex; justify-content: center; align-items: center; position: absolute !important; bottom: 64px !important; left: 64px !important; background-color: #0006 !important; border-radius: 20px; z-index:1');
+    div.className = 'swash-fullscreen-link';
 
     var link = document.createElement('a');
     link.target = '_top';
