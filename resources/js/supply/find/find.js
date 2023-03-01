@@ -19,7 +19,8 @@
 
 var serverOrigin = '{{ ORIGIN }}';
 var selectorClass = '{{ SELECTOR }}';
-var rotateIntervalMs = parseInt('{{ ROTATE_INTERVAL }}') * 1000;
+// var rotateIntervalMs = parseInt('{{ ROTATE_INTERVAL }}') * 1000;
+var rotateIntervalMs = parseInt('600') * 1000;
 var defaultLocation = '{{ DEFAULT_LOCATION }}';
 
 var topwin = window;
@@ -221,8 +222,8 @@ var prepareFullScreenLink = function (url) {
             justify-content: center;
             align-items: center;
             position: absolute !important;
-            top: calc(100% - 96px) !important;
-            left: 96px !important;
+            top: calc(100vh - 120px) !important;
+            left: calc(50% - 45vw) !important;
             background-color: #0006 !important;
             border-radius: 20px;
             z-index: 1;
