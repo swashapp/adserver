@@ -222,7 +222,7 @@ var prepareFullScreenLink = function (url) {
             justify-content: center;
             align-items: center;
             position: absolute !important;
-            top: calc(100vh - 120px) !important;
+            top: calc(Min(100vh, 100%) - 120px) !important;
             left: calc(50% - 45vw) !important;
             background-color: #0006 !important;
             border-radius: 20px;
