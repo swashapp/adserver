@@ -136,7 +136,7 @@ var prepareElement = function (context, banner, element, contextParam) {
         div.appendChild(infoBox);
     }
 
-    if (context.zone.width === 1920 && context.zone.height === 1080) {
+    if (context.zone.width % 1920 === 0 && context.zone.height % 1080 === 0) {
         var fullScreenAdBox = prepareFullScreenLink(context.click_url);
         div.appendChild(fullScreenAdBox);
     }
