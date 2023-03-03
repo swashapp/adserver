@@ -179,11 +179,7 @@ var prepareElement = function (context, banner, element, contextParam) {
                         console.log('invisible click');
                         return;
                     }
-                    if (context.zone.width === 1920 && context.zone.height === 1080) {
-                        console.log('wrong full screen click');
-                        return;
-                    }
-                    if (context.zone.width === 1920 && context.zone.height === 1080 && data.eventId !== 'adContainer') {
+                    if (context.zone.width % 1920 === 0 && context.zone.height % 1080 === 0) {
                         console.log('wrong full screen click');
                         return;
                     }
