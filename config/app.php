@@ -190,6 +190,7 @@ return [
     'min_ads_batch_withdrawal' => env('MIN_ADS_BATCH_WITHDRAWAL'),
     'use_random_wallet_for_foreign' => env('USE_RANDOM_WALLET_FOR_FOREIGN'),
     'foreign_default_site_js' => env('FOREIGN_DEFAULT_SITE_JS'),
+    'reviewer_user_id' => env('reviewer_user_id'),
     'foreign_preferred_zones' => [
         ['name' => '234x60', 'width' => '234', 'height' => '60'],
         ['name' => '240x400', 'width' => '240', 'height' => '400'],
