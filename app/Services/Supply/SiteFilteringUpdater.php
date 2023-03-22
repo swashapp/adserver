@@ -79,6 +79,13 @@ class SiteFilteringUpdater
             }
         }
 
+        if(config('app.reviewer_user_id')){
+            $requireKeywords = $this->getClassificationForRejectedBannersForAllSites(intval(config('app.reviewer_user_id')));
+            foreach ($requireKeywords as $requireKeyword) {
+                $siteRequires[self::INTERNAL_CLASSIFIER_NAMESPACE][] = $requireKeyword->keyword();
+            }
+        }
+
         $site->site_excludes = array_map([__CLASS__, 'normalize'], $siteExcludes);
         $site->site_requires = array_map([__CLASS__, 'normalize'], $siteRequires);
         $site->save();
