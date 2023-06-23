@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -31,10 +31,11 @@ use Adshares\Adserver\Models\NetworkImpression;
 use Adshares\Adserver\Models\NetworkVectorsMeta;
 use Adshares\Adserver\Models\ServeDomain;
 use Adshares\Adserver\Models\Site;
-use Adshares\Adserver\Models\SupplyBlacklistedDomain;
+use Adshares\Adserver\Models\SitesRejectedDomain;
 use Adshares\Adserver\Models\User;
 use Adshares\Adserver\Models\Zone;
 use Adshares\Adserver\Rules\PayoutAddressRule;
+use Adshares\Adserver\Utilities\AdsAuthenticator;
 use Adshares\Adserver\Utilities\AdsUtils;
 use Adshares\Adserver\Utilities\CssUtils;
 use Adshares\Adserver\Utilities\DomainReader;
@@ -42,7 +43,9 @@ use Adshares\Adserver\Utilities\SqlUtils;
 use Adshares\Adserver\ViewModel\MediumName;
 use Adshares\Adserver\ViewModel\ZoneSize;
 use Adshares\Common\Application\Service\AdUser;
+use Adshares\Common\Domain\ValueObject\Exception\InvalidUuidException;
 use Adshares\Common\Domain\ValueObject\SecureUrl;
+use Adshares\Common\Domain\ValueObject\Uuid;
 use Adshares\Common\Domain\ValueObject\WalletAddress;
 use Adshares\Common\Exception\InvalidArgumentException;
 use Adshares\Common\Exception\RuntimeException;
@@ -51,6 +54,7 @@ use Adshares\Supply\Application\Dto\FoundBanners;
 use Adshares\Supply\Application\Service\AdSelect;
 use Closure;
 use DateTime;
+use DateTimeImmutable;
 use DateTimeInterface;
 use Exception;
 use GuzzleHttp\Psr7\Query;
@@ -58,15 +62,14 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response as BaseResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
@@ -120,77 +123,52 @@ class SupplyController extends Controller
         $validated['min_dpi'] = $validated['min_dpi'] ?? Zone::DEFAULT_MINIMAL_DPI;
         $validated['zone_name'] = $validated['zone_name'] ?? Zone::DEFAULT_NAME;
         $validated['depth'] = $validated['depth'] ?? Zone::DEFAULT_DEPTH;
-
-        $payoutAddress = WalletAddress::fromString($validated['pay_to']);
-        $user = User::fetchByWalletAddress($payoutAddress);
-
-        if (!$user) {
-            if (config('app.auto_registration_enabled')) {
-                if (!in_array(UserRole::PUBLISHER, config('app.default_user_roles'))) {
-                    throw new HttpException(BaseResponse::HTTP_FORBIDDEN, 'Cannot register publisher');
-                }
-                $user = User::registerWithWallet($payoutAddress, true);
-            } else {
-                return $this->sendError("pay_to", "User not found for " . $payoutAddress->toString());
-            }
-        }
-        if (!$user->isPublisher()) {
-            throw new HttpException(BaseResponse::HTTP_FORBIDDEN, 'Forbidden');
-        }
-        try {
-            $site = Site::fetchOrCreate(
-                $user->id,
-                $validated['context']['site']['url'],
-                $validated['medium'],
-                $validated['vendor'] ?? null,
-            );
-        } catch (InvalidArgumentException $exception) {
-            return $this->sendError('site', $exception->getMessage());
-        }
-        if ($site->status != Site::STATUS_ACTIVE) {
-            return $this->sendError("site", "Site '" . $site->name . "' is not active");
-        }
-
         $minDpi = (float)$validated['min_dpi'];
-        $zoneSize = ZoneSize::fromArray([
-            'width' => (float)$validated['width'] * $minDpi,
-            'height' => (float)$validated['height'] * $minDpi,
-            'depth' => (float)$validated['depth'],
-        ]);
 
-        try {
-            $zone = Zone::fetchOrCreate($site->id, $zoneSize, $validated['zone_name']);
-        } catch (InvalidArgumentException $exception) {
-            return $this->sendError('zone', $exception->getMessage());
+        $context = [
+            'iid' => $validated['view_id'],
+            'publisher' => $validated['pay_to'],
+            'url' => $validated['context']['site']['url'],
+            'medium' => $validated['medium'],
+            'vendor' => $validated['vendor'] ?? null,
+            'metamask' => (bool)($validated['context']['site']['metamask'] ?? 0),
+        ];
+        if (isset($validated['context']['user']['account'])) {
+            $context['uid'] = $validated['context']['user']['account'];
         }
-        $queryData = [
-            'page' => [
-                'iid' => $validated['view_id'],
-                'url' => $validated['context']['site']['url'],
-                'metamask' => $validated['context']['site']['metamask'] ?? 0,
-            ],
-            'user' => $validated['context']['user'] ?? [],
-            'zones' => [
-                [
-                    'zone' => $zone->uuid,
-                    'options' => [
-                        'banner_type' => isset($validated['type']) ? ((array)$validated['type']) : null,
-                        'banner_mime' => $validated['mime_type'] ?? null
-                    ],
-                ],
-            ],
-            'zone_mode' => 'best_match'
+        $placement = [
+            'id' => '1',
+            'name' => $validated['zone_name'] ?? Zone::DEFAULT_NAME,
+            'width' => (int)((float)$validated['width'] * $minDpi),
+            'height' => (int)((float)$validated['height'] * $minDpi),
+            'depth' => (int)((float)$validated['depth'] ?? Zone::DEFAULT_DEPTH),
+        ];
+        if (isset($validated['type'])) {
+            $placement['types'] = (array)$validated['type'];
+        }
+        if (isset($validated['mime_type'])) {
+            $placement['mimes'] = (array)$validated['mime_type'];
+        }
+        $input = [
+            'context' => $context,
+            'placements' => [$placement],
         ];
 
+        if ('POST' === $request->getRealMethod()) {
+            $request->merge($input);
+        } elseif ('GET' === $request->getRealMethod()) {
+            $request->offsetSet('data', Utils::urlSafeBase64Encode(json_encode($input)));
+        }
 
-        $response = new Response();
-
+        $response = $this->find($contextProvider, $bannerFinder, $request);
+        $content = $response->getContent();
+        $banners = json_decode($content, true)['data'];
+        if (!empty($banners)) {
+            $banners = [self::unmapResult($banners[0])];
+        }
         return self::json(
             [
-                'banners' => $this->findBanners($queryData, $request, $response, $contextProvider, $bannerFinder)
-                    ->toArray(),
-                'zones' => $queryData['zones'],
-                'zoneSizes' => $zone->scopes,
+                'banners' => $banners,
                 'success' => true,
             ]
         );
@@ -262,6 +240,10 @@ class SupplyController extends Controller
                                     throw new HttpException(Response::HTTP_FORBIDDEN, 'Cannot register publisher');
                                 }
                                 $user = User::registerWithWallet($payoutAddress, true);
+                                if (config('app.auto_confirmation_enabled')) {
+                                    $user->confirmAdmin();
+                                    $user->saveOrFail();
+                                }
                             } else {
                                 return $this->sendError("pay_to", "User not found for " . $payoutAddress->toString());
                             }
@@ -408,103 +390,25 @@ class SupplyController extends Controller
             ->filter(fn($banner) => null !== $banner)
             ->map($this->mapFoundBannerToResult())
             ->getValues();
-        return self::json(['data' => $foundBanners]);
-    }
 
-    public function findSimple(
-        Request $request,
-        AdUser $contextProvider,
-        AdSelect $bannerFinder,
-        string $zone_id,
-        string $impression_id
-    ): BaseResponse {
-        $zone = Zone::fetchByPublicId($zone_id);
-        $response = new Response();
-        $queryData = [
-            'page' => [
-                "iid" => $impression_id,
-                "url" => $zone->site->url,
-            ],
-            'zones' => [
-                [
-                    'zone' => $zone_id,
-                    'options' => [
-                        'banner_type' => [
-                            $request->get('type')
-                        ]
-                    ]
-                ],
-            ],
-        ];
-
-        $foundBanner = $this->findBanners($queryData, $request, $response, $contextProvider, $bannerFinder)->first();
-        if ($foundBanner) {
-            return $this->sendForeignBrandedBanner($foundBanner);
+        $data = ['data' => $foundBanners];
+        if ($custom = $this->getCustomData($context, $foundBanners)) {
+            $data['custom'] = $custom;
         }
-        throw new NotFoundHttpException('Could not find banner');
+        return self::json($data);
     }
 
-    private function watermarkImage(\Imagick $im, \Imagick $watermark)
+    private function getCustomData(array $context, array $banners): array
     {
-        $w = $im->getImageWidth();
-        $box = new \ImagickDraw();
-        $box->setFillColor(new \ImagickPixel('white'));
-        $box->rectangle($w - 16, 0, $w, 16);
-        $im->drawImage($box);
-        $im->compositeImage($watermark, \Imagick::COMPOSITE_ATOP, $w - 16, 0);
-    }
-
-    private function sendForeignBrandedBanner($foundBanner): BaseResponse
-    {
-        $response = new Response();
-        $img = Cache::remember(
-            'banner_cache.' . $foundBanner['serve_url'],
-            self::TTL_ONE_HOUR,
-            function () use ($foundBanner) {
-                $bannerContent = file_get_contents($foundBanner['serve_url']);
-                $hash = sha1($bannerContent);
-
-                if ($hash != $foundBanner['creative_sha1']) {
-                    throw new NotFoundHttpException('Content hash mismatch');
-                }
-
-                $watermark = new \Imagick(public_path('img/watermark.png'));
-                $watermark->resizeImage(16, 16, \Imagick::FILTER_BOX, 0);
-
-                $im = new \Imagick();
-                $im->readImageBlob($bannerContent);
-
-                if ($im->getImageFormat() == 'GIF') {
-                    $parts = $im->coalesceImages();
-                    do {
-                        $this->watermarkImage($parts, $watermark);
-                    } while ($parts->nextImage());
-                    $im = $parts->deconstructImages();
-                } else {
-                    $this->watermarkImage($im, $watermark);
-                }
-
-                return [
-                    'data' => $im->getImagesBlob(),
-                    'mime' => $im->getImageMimeType()
-                ];
-            }
-        );
-
-
-        $response->setContent($img['data']);
-
-        $response->headers->set('Content-Type', $img['mime']);
-
-        return $response;
+        return [];
     }
 
     private function checkDecodedQueryData(array $decodedQueryData): void
     {
-        if ($this->isPageBlacklisted($decodedQueryData['page']['url'] ?? '')) {
-            throw new BadRequestHttpException('Site not accepted');
+        if ($this->isSiteRejected($decodedQueryData['page']['url'] ?? '')) {
+            throw new BadRequestHttpException('Site rejected');
         }
-        if (!config('app.allow_zone_in_iframe') && ($decodedQueryData['page']['frame'] ?? false)) {
+        if (!config('app.allow_zone_in_iframe') && $this->isAnyZoneInFrame($decodedQueryData)) {
             throw new BadRequestHttpException('Cannot run in iframe');
         }
         if (
@@ -516,16 +420,29 @@ class SupplyController extends Controller
         }
     }
 
-    private function decodeZones(array $decodedQueryData): array
+    private function isAnyZoneInFrame(array $decodedQueryData): bool
+    {
+        if ($decodedQueryData['page']['frame'] ?? false) {
+            // legacy code, should be deleted when legacyFind will be removed
+            return true;
+        }
+        if (isset($decodedQueryData['placements'])) {
+            foreach ($decodedQueryData['placements'] as $placement) {
+                if (!($placement['options']['topframe'] ?? true)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function extractZones(array $decodedQueryData): array
     {
         $zones = $decodedQueryData['placements'] ?? $decodedQueryData['zones'] ?? [];// Key 'zones' is for legacy search
         if (!$zones) {
-            throw new BadRequestHttpException('Site not accepted');
+            throw new BadRequestHttpException('No placements');
         }
-        if (($decodedQueryData['zone_mode'] ?? '') !== 'best_match') {
-            $zones = array_slice($zones, 0, config('app.max_page_zones'));
-        }
-        return $zones;
+        return array_slice($zones, 0, config('app.max_page_zones'));
     }
 
     /**
@@ -545,7 +462,7 @@ class SupplyController extends Controller
         AdSelect $bannerFinder
     ): FoundBanners {
         $this->checkDecodedQueryData($decodedQueryData);
-        $impressionId = $decodedQueryData['page']['iid'];
+        $impressionId = self::impressionIdToUuid($decodedQueryData['page']['iid']);
 
         $tid = Utils::attachOrProlongTrackingCookie(
             $request,
@@ -568,32 +485,26 @@ class SupplyController extends Controller
         $userContext = $contextProvider->getUserContext($impressionContext);
 
         if ($userContext->isCrawler()) {
-            return new FoundBanners();
+            throw new AccessDeniedHttpException('Crawlers are not allowed');
         }
 
-        $zones = $this->decodeZones($decodedQueryData);
+        $zones = $this->extractZones($decodedQueryData);
         if ($userContext->pageRank() <= self::UNACCEPTABLE_PAGE_RANK) {
             if ($userContext->pageRank() == Aduser::CPA_ONLY_PAGE_RANK) {
                 foreach ($zones as &$zone) {
                     $zone['options']['cpa_only'] = true;
                 }
             } else {
-                return new FoundBanners();
+                throw new AccessDeniedHttpException('This site is banned');
             }
         }
 
         $context = Utils::mergeImpressionContextAndUserContext($impressionContext, $userContext);
-        $foundBanners = $bannerFinder->findBanners($zones, $context);
-
-        if (($decodedQueryData['zone_mode'] ?? '') === 'best_match') {
-            $values = $foundBanners->filter(fn($element) => $element != null)->getValues();
-            shuffle($values);
-            $foundBanners = new FoundBanners(array_slice($values, 0, 1));
-        }
+        $foundBanners = $bannerFinder->findBanners($zones, $context, $impressionId);
 
         if ($foundBanners->exists(fn($key, $element) => $element != null)) {
             NetworkImpression::register(
-                Utils::hexUuidFromBase64UrlWithChecksum($impressionId),
+                $impressionId,
                 Utils::hexUuidFromBase64UrlWithChecksum($tid),
                 $impressionContext,
                 $userContext,
@@ -690,13 +601,10 @@ class SupplyController extends Controller
         return $response;
     }
 
-
     public function logNetworkSimpleClick(Request $request): RedirectResponse
     {
-        $impressionId = $request->query->get('iid');
-        $networkImpression = NetworkImpression::fetchByImpressionId(
-            Utils::hexUuidFromBase64UrlWithChecksum($impressionId)
-        );
+        $impressionId = self::impressionIdToUuid($request->query->get('iid'));
+        $networkImpression = NetworkImpression::fetchByImpressionId($impressionId);
         if (null === $networkImpression || !$networkImpression->context->banner_id) {
             throw new NotFoundHttpException();
         }
@@ -735,16 +643,20 @@ class SupplyController extends Controller
 
         $url = $this->addQueryStringToUrl($request, $url);
 
-        $caseId = $request->query->get('cid');
+        $caseId = str_replace('-', '', $request->query->get('cid'));
         if (null === ($networkCase = NetworkCase::fetchByCaseId($caseId))) {
             throw new NotFoundHttpException();
         }
 
         $payTo = AdsUtils::normalizeAddress(config('app.adshares_address'));
-        try {
-            $zoneId = ($networkCase->zone_id ?? null) ?: Utils::getZoneIdFromContext($request->query->get('ctx'));
-        } catch (RuntimeException $exception) {
-            throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
+        if (null === ($zoneId = ($networkCase->zone_id ?? null))) {
+            try {
+                $zoneId = null !== $request->query->get('zid')
+                    ? str_replace('-', '', $request->query->get('zid'))
+                    : Utils::getZoneIdFromContext($request->query->get('ctx'));
+            } catch (RuntimeException $exception) {
+                throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
+            }
         }
         $publisherId = Zone::fetchPublisherPublicIdByPublicId($zoneId);
         $impressionId = $request->query->get('iid');
@@ -752,6 +664,10 @@ class SupplyController extends Controller
         $url = Utils::addUrlParameter($url, 'pto', $payTo);
         $url = Utils::addUrlParameter($url, 'pid', $publisherId);
         $url = Utils::addUrlParameter($url, 'iid', $impressionId);
+        if (!$request->query->has('ctx')) {
+            $ctx = $this->buildCtx($networkCase->networkImpression, $impressionId, $zoneId);
+            $url = Utils::addUrlParameter($url, 'ctx', $ctx);
+        }
 
         $response = new RedirectResponse($url);
         $response->send();
@@ -807,10 +723,8 @@ class SupplyController extends Controller
 
     public function logNetworkSimpleView(Request $request): RedirectResponse
     {
-        $impressionId = $request->query->get('iid');
-        $networkImpression = NetworkImpression::fetchByImpressionId(
-            Utils::hexUuidFromBase64UrlWithChecksum($impressionId)
-        );
+        $impressionId = self::impressionIdToUuid($request->query->get('iid'));
+        $networkImpression = NetworkImpression::fetchByImpressionId($impressionId);
         if (null === $networkImpression || !$networkImpression->context->banner_id) {
             throw new NotFoundHttpException();
         }
@@ -838,10 +752,11 @@ class SupplyController extends Controller
     {
         $this->validateEventRequest($request);
 
-        $impressionId = $request->query->get('iid');
-        $networkImpression = NetworkImpression::fetchByImpressionId(
-            Utils::hexUuidFromBase64UrlWithChecksum($impressionId)
-        );
+        if (null === ($iid = $request->query->get('iid'))) {
+            throw new BadRequestHttpException('Invalid parameters.');
+        }
+        $impressionId = self::impressionIdToUuid($iid);
+        $networkImpression = NetworkImpression::fetchByImpressionId($impressionId);
         if (null === $networkImpression) {
             throw new NotFoundHttpException();
         }
@@ -851,22 +766,26 @@ class SupplyController extends Controller
             $url = $this->addQueryStringToUrl($request, $url);
         }
 
-        $caseId = $request->query->get('cid');
         $payTo = AdsUtils::normalizeAddress(config('app.adshares_address'));
 
-        try {
-            $zoneId = ($networkImpression->context->zone_id ?? null)
-                ?:
-                Utils::getZoneIdFromContext($request->query->get('ctx'));
-        } catch (RuntimeException $exception) {
-            throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
+        if (null === ($zoneId = ($networkImpression->context->zone_id ?? null))) {
+            try {
+                $zoneId = null !== $request->query->get('zid')
+                    ? str_replace('-', '', $request->query->get('zid'))
+                    : Utils::getZoneIdFromContext($request->query->get('ctx'));
+            } catch (RuntimeException $exception) {
+                throw new UnprocessableEntityHttpException($exception->getMessage(), $exception);
+            }
         }
         $publisherId = Zone::fetchPublisherPublicIdByPublicId($zoneId);
         $siteId = Zone::fetchSitePublicIdByPublicId($zoneId);
 
         $url = Utils::addUrlParameter($url, 'pto', $payTo);
         $url = Utils::addUrlParameter($url, 'pid', $publisherId);
-
+        if (!$request->query->has('ctx')) {
+            $ctx = $this->buildCtx($networkImpression, $impressionId, $zoneId);
+            $url = Utils::addUrlParameter($url, 'ctx', $ctx);
+        }
         $response = new RedirectResponse($url);
 
         if ($request->headers->has('Origin')) {
@@ -875,6 +794,7 @@ class SupplyController extends Controller
 
         $response->send();
 
+        $caseId = str_replace('-', '', $request->query->get('cid'));
         $networkCase = NetworkCase::create(
             $caseId,
             $publisherId,
@@ -894,8 +814,8 @@ class SupplyController extends Controller
     {
         if (
             !$request->query->has('r')
-            || !$request->query->has('ctx')
-            || !Utils::isUuidValid($request->query->get('cid'))
+            || !($request->query->has('ctx') || (Uuid::isValid($request->query->get('zid', ''))))
+            || !Uuid::isValid($request->query->get('cid', ''))
         ) {
             throw new BadRequestHttpException('Invalid parameters.');
         }
@@ -912,7 +832,7 @@ class SupplyController extends Controller
     public function register(Request $request): Response
     {
         $response = new Response();
-        $impressionId = $request->query->get('iid');
+        $impressionId = self::impressionIdToUuid($request->query->get('iid', ''));
 
         $trackingId = Utils::attachOrProlongTrackingCookie(
             $request,
@@ -946,16 +866,12 @@ class SupplyController extends Controller
 
     public function why(Request $request): View
     {
-        Validator::make(
-            $request->all(),
-            [
-                'bid' => 'required|regex:/^[0-9a-f]{32}$/i',
-                'cid' => 'required|regex:/^[0-9a-f]{32}$/i',
-            ]
-        )->validate();
-
-        $bannerId = $request->query->get('bid');
-        $caseId = $request->query->get('cid');
+        try {
+            $bannerId = (new Uuid($request->query->get('bid', '')))->hex();
+            $caseId = (new Uuid($request->query->get('cid', '')))->hex();
+        } catch (InvalidUuidException $exception) {
+            throw new UnprocessableEntityHttpException($exception->getMessage());
+        }
 
         if (null === ($banner = NetworkBanner::fetchByPublicId($bannerId))) {
             throw new NotFoundHttpException('No matching banner');
@@ -967,10 +883,11 @@ class SupplyController extends Controller
 
         $data = [
             'url' => $banner->serve_url,
+            'source' => strtolower(preg_replace('/\s/', '-', config('app.adserver_name'))),
             'supplyName' => config('app.adserver_name'),
             'supplyTermsUrl' => route('terms-url'),
             'supplyPrivacyUrl' => route('privacy-url'),
-            'supplyPanelUrl' => config('app.adpanel_url'),
+            'supplyLandingUrl' => config('app.landing_url'),
             'supplyBannerReportUrl' => new SecureUrl(
                 route(
                     'report-ad',
@@ -982,6 +899,7 @@ class SupplyController extends Controller
             ),
             'supplyBannerRejectUrl' => config('app.adpanel_url') . '/publisher/classifier/' . $bannerId,
             'demand' => false,
+            'bannerSize' => $banner->size,
             'bannerType' => $banner->type,
         ];
 
@@ -991,9 +909,9 @@ class SupplyController extends Controller
                 [
                     'demand' => true,
                     'demandName' => $info->getName(),
-                    'demandTermsUrl' => $info->getTermsUrl() ?? null,
-                    'demandPrivacyUrl' => $info->getPrivacyUrl() ?? null,
-                    'demandPanelUrl' => $info->getPanelUrl(),
+                    'demandTermsUrl' => $info->getTermsUrl(),
+                    'demandPrivacyUrl' => $info->getPrivacyUrl(),
+                    'demandLandingUrl' => $info->getLandingUrl(),
                 ]
             );
         }
@@ -1006,8 +924,11 @@ class SupplyController extends Controller
 
     public function reportAd(string $caseId, string $bannerId): string
     {
-        if (!Utils::isUuidValid($caseId) || !Utils::isUuidValid($bannerId)) {
-            throw new UnprocessableEntityHttpException();
+        try {
+            $bannerId = (new Uuid($bannerId))->hex();
+            $caseId = (new Uuid($caseId))->hex();
+        } catch (InvalidUuidException $exception) {
+            throw new UnprocessableEntityHttpException($exception->getMessage());
         }
 
         if (null === ($case = NetworkCase::fetchByCaseId($caseId))) {
@@ -1015,7 +936,7 @@ class SupplyController extends Controller
         }
 
         if ($case->banner_id !== $bannerId) {
-            throw new BadRequestHttpException('Wrong banner id');
+            throw new UnprocessableEntityHttpException('Wrong banner id');
         }
 
         $userId = User::fetchByUuid($case->publisher_id)->id;
@@ -1028,27 +949,34 @@ class SupplyController extends Controller
         return 'Thank you for reporting ad.';
     }
 
-    private function isPageBlacklisted(string $url): bool
+    private function isSiteRejected(string $url): bool
     {
-        $domain = DomainReader::domain($url);
-
-        return SupplyBlacklistedDomain::isDomainBlacklisted($domain);
+        $rejectedDomain = SitesRejectedDomain::getMatchingRejectedDomain(DomainReader::domain($url));
+        $isDomainRejected = null !== $rejectedDomain;
+        if ($isDomainRejected) {
+            Site::rejectByDomains([$rejectedDomain]);
+        }
+        return $isDomainRejected;
     }
 
-    public function targetingReachList(): Response
+    public function targetingReachList(AdsAuthenticator $authenticator, Request $request): JsonResponse
     {
+        $whitelist = config('app.inventory_export_whitelist');
+        if (!empty($whitelist)) {
+            $account = $authenticator->verifyRequest($request);
+            if (!in_array($account, $whitelist)) {
+                throw new AccessDeniedHttpException();
+            }
+        }
+
         if (null === ($networkHost = NetworkHost::fetchByAddress(config('app.adshares_address')))) {
-            return response(
-                ['code' => BaseResponse::HTTP_INTERNAL_SERVER_ERROR, 'message' => 'Cannot get adserver id'],
-                BaseResponse::HTTP_INTERNAL_SERVER_ERROR
-            );
+            Log::error('[Supply Targeting Reach] Cannot get adserver ID');
+            return self::targetingReachResponse();
         }
 
         if (null === ($meta = NetworkVectorsMeta::fetchByNetworkHostId($networkHost->id))) {
-            return response(
-                ['code' => BaseResponse::HTTP_INTERNAL_SERVER_ERROR, 'message' => 'Cannot get adserver meta'],
-                BaseResponse::HTTP_INTERNAL_SERVER_ERROR
-            );
+            Log::error('[Supply Targeting Reach] Cannot get adserver meta');
+            return self::targetingReachResponse();
         }
 
         $rows = DB::table('network_vectors')->select(
@@ -1080,21 +1008,29 @@ class SupplyController extends Controller
             ];
         }
 
-        return response(
+        return self::targetingReachResponse($meta->total_events_count, $meta->updated_at, $result);
+    }
+
+    private static function targetingReachResponse(
+        int $eventsCount = 0,
+        ?DateTimeInterface $updateDateTime = null,
+        array $categories = [],
+    ): JsonResponse {
+        return self::json(
             [
                 'meta' => [
-                    'total_events_count' => $meta->total_events_count,
-                    'updated_at' => $meta->updated_at->format(DateTimeInterface::ATOM),
+                    'total_events_count' => $eventsCount,
+                    'updated_at' => ($updateDateTime ?: new DateTimeImmutable())->format(DateTimeInterface::ATOM),
                 ],
-                'categories' => $result,
-            ]
+                'categories' => $categories,
+            ],
         );
     }
 
     private function getPublisherOrFail(string $publisher): User
     {
-        if (Utils::isUuidValid($publisher)) {
-            $user = User::fetchByUuid($publisher);
+        if (Uuid::isValid($publisher)) {
+            $user = User::fetchByUuid(str_replace('-', '', $publisher));
         } else {
             try {
                 $payoutAddress = WalletAddress::fromString($publisher);
@@ -1109,6 +1045,10 @@ class SupplyController extends Controller
                     throw new HttpException(BaseResponse::HTTP_FORBIDDEN, 'Cannot register publisher');
                 }
                 $user = User::registerWithWallet($payoutAddress, true);
+                if (config('app.auto_confirmation_enabled')) {
+                    $user->confirmAdmin();
+                    $user->saveOrFail();
+                }
             }
         }
 
@@ -1150,8 +1090,10 @@ class SupplyController extends Controller
     private function getZoneType(array $placement): ?string
     {
         if (isset($placement['types'])) {
-            $zoneTypes = array_unique(
-                array_map(fn($type) => Utils::getZoneTypeByBannerType($type), $placement['types'])
+            $zoneTypes = array_values(
+                array_unique(
+                    array_map(fn($type) => Utils::getZoneTypeByBannerType($type), $placement['types'])
+                )
             );
             if (count($zoneTypes) > 1) {
                 throw new UnprocessableEntityHttpException(
@@ -1184,13 +1126,17 @@ class SupplyController extends Controller
         }
 
         foreach ($input['placements'] as $placement) {
+            $options = [
+                'banner_type' => $placement['types'] ?? null,
+                'banner_mime' => $placement['mimes'] ?? null,
+            ];
+            if (isset($placement['topframe'])) {
+                $options['topframe'] = $placement['topframe'];
+            }
             $mapped['placements'][] = [
                 'id' => $placement['id'],
                 'placementId' => $placement['placementId'],
-                'options' => [
-                    'banner_type' => $placement['types'] ?? null,
-                    'banner_mime' => $placement['mimes'] ?? null,
-                ],
+                'options' => $options,
             ];
         }
 
@@ -1202,7 +1148,9 @@ class SupplyController extends Controller
         return function ($item) {
             return [
                 'id' => $item['request_id'],
-                'placementId' => $item['id'],
+                'creativeId' => $item['id'],
+                'placementId' => $item['zone_id'],
+                // Field zoneId is deprecated, use placementId instead
                 'zoneId' => $item['zone_id'],
                 'publisherId' => $item['publisher_id'],
                 'demandServer' => $item['pay_from'],
@@ -1217,6 +1165,26 @@ class SupplyController extends Controller
                 'rpm' => $item['rpm'],
             ];
         };
+    }
+
+    private static function unmapResult(array $item): array
+    {
+        return [
+            'request_id' => $item['id'],
+            'id' => $item['creativeId'],
+            'zone_id' => $item['placementId'],
+            'publisher_id' => $item['publisherId'],
+            'pay_from' => $item['demandServer'],
+            'pay_to' => $item['supplyServer'],
+            'type' => $item['type'],
+            'size' => $item['scope'],
+            'creative_sha1' => $item['hash'],
+            'serve_url' => $item['serveUrl'],
+            'view_url' => $item['viewUrl'],
+            'click_url' => $item['clickUrl'],
+            'info_box' => $item['infoBox'],
+            'rpm' => $item['rpm'],
+        ];
     }
 
     private static function validatePlacementCommonFields(array $placement): void
@@ -1238,6 +1206,11 @@ class SupplyController extends Controller
                         sprintf('Field `placements[].%s` must be an array', $field)
                     );
                 }
+                if (empty($placement[$field])) {
+                    throw new UnprocessableEntityHttpException(
+                        sprintf('Field `placements[].%s` must be a non-empty array', $field)
+                    );
+                }
                 foreach ($placement[$field] as $entry) {
                     if (!is_string($entry)) {
                         throw new UnprocessableEntityHttpException(
@@ -1246,6 +1219,10 @@ class SupplyController extends Controller
                     }
                 }
             }
+        }
+
+        if (array_key_exists('topframe', $placement) && !is_bool($placement['topframe'])) {
+            throw new UnprocessableEntityHttpException('Field `placements[].topframe` must be a boolean');
         }
     }
 
@@ -1297,5 +1274,40 @@ class SupplyController extends Controller
                 sprintf('Field `placements[].%s` must be a string', $field)
             );
         }
+    }
+
+    private static function impressionIdToUuid(string $impressionId): string
+    {
+        if (Uuid::isValid($impressionId)) {
+            return str_replace('-', '', $impressionId);
+        }
+        return Utils::hexUuidFromBase64UrlWithChecksum($impressionId);
+    }
+
+    private function buildCtx(
+        NetworkImpression $networkImpression,
+        string $impressionId,
+        string $zoneId,
+    ): string {
+        $impressionContext = $networkImpression->context;
+        $ctx = [
+            'page' => [
+                'iid' => $impressionId,
+                'keywords' => join(',', $impressionContext->site->keywords ?? []),
+                'metamask' => $impressionContext->device->extensions->metamask ?? 0,
+                'options' => '',
+                'pop' => $impressionContext->site->popup ?? 0,
+                'ref' => $impressionContext->site->referrer ?? '',
+                'url' => $impressionContext->site->page ?? '',
+                'zone' => $zoneId,
+            ]
+        ];
+        if (null !== ($inframe = $impressionContext->site->inframe)) {
+            $ctx['page']['frame'] = 'yes' === $inframe ? 1 : 0;
+        }
+        if (null !== ($account = $impressionContext->user->account ?? null)) {
+            $ctx['user']['account'] = $account;
+        }
+        return Utils::UrlSafeBase64Encode(json_encode($ctx));
     }
 }

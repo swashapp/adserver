@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -28,9 +28,12 @@ use Adshares\Adserver\Models\Conversion;
 use Adshares\Adserver\Models\EventLog;
 use Adshares\Adserver\Models\EventLogsHourlyMeta;
 use Adshares\Adserver\Models\Payment;
+use Adshares\Adserver\Models\TurnoverEntry;
 use Adshares\Adserver\Utilities\DateUtils;
 use Adshares\Common\Exception\InvalidArgumentException;
+use Adshares\Common\Infrastructure\Service\CommunityFeeReader;
 use Adshares\Common\Infrastructure\Service\LicenseReader;
+use Adshares\Supply\Domain\ValueObject\TurnoverEntryType;
 use DateTime;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
@@ -47,21 +50,19 @@ class DemandPreparePayments extends BaseCommand
 
     protected $description = 'Prepares payments for events and license';
 
-    private LicenseReader $licenseReader;
-
-    public function __construct(Locker $locker, LicenseReader $licenseReader)
-    {
-        $this->licenseReader = $licenseReader;
-
+    public function __construct(
+        Locker $locker,
+        private readonly CommunityFeeReader $communityFeeReader,
+        private readonly LicenseReader $licenseReader,
+    ) {
         parent::__construct($locker);
     }
 
-    public function handle(): void
+    public function handle(): int
     {
         if (!$this->lock()) {
             $this->info('Command ' . self::COMMAND_SIGNATURE . ' already running');
-
-            return;
+            return self::FAILURE;
         }
 
         $this->info('Start command ' . self::COMMAND_SIGNATURE);
@@ -69,7 +70,6 @@ class DemandPreparePayments extends BaseCommand
         $to = $this->getDateTimeFromOption('to');
         if ($from !== null && $to !== null && $to < $from) {
             $this->release();
-
             throw new InvalidArgumentException(
                 sprintf(
                     '[DemandPreparePayments] Invalid period from (%s) to (%s)',
@@ -79,25 +79,35 @@ class DemandPreparePayments extends BaseCommand
             );
         }
 
-        $licenseAccountAddress = $this->licenseReader->getAddress()->toString();
+        $licenseAccountAddress = $this->licenseReader->getAddress()?->toString();
         $demandLicenseFeeCoefficient = $this->licenseReader->getFee(LicenseReader::LICENSE_TX_FEE);
         $demandOperatorFeeCoefficient = config('app.payment_tx_fee');
+        $communityAccountAddress = $this->communityFeeReader->getAddress()->toString();
+        $communityFeeCoefficient = $this->communityFeeReader->getFee();
 
         $conversions = Conversion::fetchUnpaidConversions($from, $to);
         $conversionCount = count($conversions);
         $this->info("Found $conversionCount payable conversions.");
+        $hourTimestamp = DateUtils::getDateTimeRoundedToCurrentHour();
         if ($conversionCount > 0) {
+            $totalEventValue = 0;
             $totalLicenseFee = 0;
+            $totalOperatorFee = 0;
+            $totalCommunityFee = 0;
             $eventLogIds = [];
             $groupedConversions = $this->processAndGroupEventsByRecipient(
                 $conversions,
                 $demandLicenseFeeCoefficient,
                 $demandOperatorFeeCoefficient,
+                $communityFeeCoefficient,
+                $totalEventValue,
                 $totalLicenseFee,
+                $totalOperatorFee,
+                $totalCommunityFee,
                 $eventLogIds
             );
 
-            $this->info(sprintf('In that, there are %d recipients,', count($groupedConversions)));
+            $this->info(sprintf('In that, there are %d recipients', count($groupedConversions)));
 
             DB::beginTransaction();
 
@@ -105,15 +115,16 @@ class DemandPreparePayments extends BaseCommand
                 EventLogsHourlyMeta::invalidate($timestamp);
             }
 
+            $this->storeEventValue($totalEventValue, $hourTimestamp);
+            $this->storeOperatorFee($totalOperatorFee, $hourTimestamp);
+
             $groupedConversions->each(
-                static function (Collection $paymentGroup, string $payTo) {
-                    $payment = new Payment([
-                        'account_address' => $payTo,
-                        'state' => Payment::STATE_NEW,
-                        'completed' => 0,
-                        'fee' => $paymentGroup->sum('paid_amount'),
-                    ]);
-                    $payment->push();
+                function (Collection $paymentGroup, string $payTo) use ($hourTimestamp) {
+                    $amount = $paymentGroup->sum('paid_amount');
+                    $payment = $this->savePayment($payTo, $amount);
+                    if ($amount > 0) {
+                        TurnoverEntry::increaseOrInsert($hourTimestamp, TurnoverEntryType::DspExpense, $amount, $payTo);
+                    }
                     foreach ($paymentGroup as $row) {
                         $row->payment_id = $payment->id;
                         $row->updated_at = new DateTime();
@@ -122,19 +133,9 @@ class DemandPreparePayments extends BaseCommand
                 }
             );
 
-            $licensePayment = new Payment([
-                'account_address' => $licenseAccountAddress,
-                'state' => Payment::STATE_NEW,
-                'completed' => 0,
-                'fee' => $totalLicenseFee,
-            ]);
-
-            $licensePayment->save();
-
+            $this->saveLicensePayment($licenseAccountAddress, $totalLicenseFee, $hourTimestamp);
+            $this->saveCommunityPayment($communityAccountAddress, $totalCommunityFee, $hourTimestamp);
             DB::commit();
-
-            $this->info("and a license fee of {$licensePayment->fee} clicks"
-                . " payable to {$licensePayment->account_address}.");
         }
         while (true) {
             $events = EventLog::fetchUnpaidEvents($from, $to, (int)$this->option('chunkSize'));
@@ -146,29 +147,37 @@ class DemandPreparePayments extends BaseCommand
                 break;
             }
 
+            $totalEventValue = 0;
             $totalLicenseFee = 0;
+            $totalOperatorFee = 0;
+            $totalCommunityFee = 0;
             $eventLogIds = [];
             $groupedEvents = $this->processAndGroupEventsByRecipient(
                 $events,
                 $demandLicenseFeeCoefficient,
                 $demandOperatorFeeCoefficient,
+                $communityFeeCoefficient,
+                $totalEventValue,
                 $totalLicenseFee,
+                $totalOperatorFee,
+                $totalCommunityFee,
                 $eventLogIds
             );
 
-            $this->info(sprintf('In that, there are %d recipients,', count($groupedEvents)));
+            $this->info(sprintf('In that, there are %d recipients', count($groupedEvents)));
 
             DB::beginTransaction();
 
+            $this->storeEventValue($totalEventValue, $hourTimestamp);
+            $this->storeOperatorFee($totalOperatorFee, $hourTimestamp);
+
             $groupedEvents->each(
-                static function (Collection $paymentGroup, string $payTo) {
-                    $payment = new Payment([
-                        'account_address' => $payTo,
-                        'state' => Payment::STATE_NEW,
-                        'completed' => 0,
-                        'fee' => $paymentGroup->sum('paid_amount'),
-                    ]);
-                    $payment->push();
+                function (Collection $paymentGroup, string $payTo) use ($hourTimestamp) {
+                    $amount = $paymentGroup->sum('paid_amount');
+                    $payment = $this->savePayment($payTo, $amount);
+                    if ($amount > 0) {
+                        TurnoverEntry::increaseOrInsert($hourTimestamp, TurnoverEntryType::DspExpense, $amount, $payTo);
+                    }
                     foreach ($paymentGroup as $row) {
                         $row->payment_id = $payment->id;
                         $row->updated_at = new DateTime();
@@ -177,40 +186,41 @@ class DemandPreparePayments extends BaseCommand
                 }
             );
 
-            $licensePayment = new Payment([
-                'account_address' => $licenseAccountAddress,
-                'state' => Payment::STATE_NEW,
-                'completed' => 0,
-                'fee' => $totalLicenseFee,
-            ]);
-
-            $licensePayment->save();
+            $this->saveLicensePayment($licenseAccountAddress, $totalLicenseFee, $hourTimestamp);
+            $this->saveCommunityPayment($communityAccountAddress, $totalCommunityFee, $hourTimestamp);
 
             DB::commit();
-
-            $this->info("and a license fee of {$licensePayment->fee} clicks"
-                . " payable to {$licensePayment->account_address}.");
         }
 
         $this->invalidateStatisticsForPreparedEvents($from, $to);
         $this->release();
+        return self::SUCCESS;
     }
 
     private function processAndGroupEventsByRecipient(
-        \Illuminate\Database\Eloquent\Collection $events,
+        Collection $events,
         float $demandLicenseFeeCoefficient,
         float $demandOperatorFeeCoefficient,
+        float $communityFeeCoefficient,
+        int &$totalEventValue,
         int &$totalLicenseFee,
+        int &$totalOperatorFee,
+        int &$totalCommunityFee,
         array &$eventLogIds
     ): Collection {
         return $events->each(
             static function ($entry) use (
                 $demandLicenseFeeCoefficient,
                 $demandOperatorFeeCoefficient,
+                $communityFeeCoefficient,
+                &$totalEventValue,
                 &$totalLicenseFee,
+                &$totalOperatorFee,
+                &$totalCommunityFee,
                 &$eventLogIds
             ) {
                 $eventLogIds[] = $entry->event_logs_id;
+                $totalEventValue += $entry->event_value;
 
                 $licenseFee = (int)floor($entry->event_value * $demandLicenseFeeCoefficient);
                 $entry->license_fee = $licenseFee;
@@ -219,8 +229,14 @@ class DemandPreparePayments extends BaseCommand
                 $amountAfterFee = $entry->event_value - $licenseFee;
                 $operatorFee = (int)floor($amountAfterFee * $demandOperatorFeeCoefficient);
                 $entry->operator_fee = $operatorFee;
+                $totalOperatorFee += $operatorFee;
 
-                $entry->paid_amount = $amountAfterFee - $operatorFee;
+                $amountAfterFee -= $operatorFee;
+                $communityFee = (int)floor($amountAfterFee * $communityFeeCoefficient);
+                $entry->community_fee = $communityFee;
+                $totalCommunityFee += $communityFee;
+
+                $entry->paid_amount = $amountAfterFee - $communityFee;
             }
         )->groupBy('pay_to');
     }
@@ -250,6 +266,79 @@ class DemandPreparePayments extends BaseCommand
         while ($timestamp < $toTimestamp) {
             EventLogsHourlyMeta::invalidate($timestamp);
             $timestamp += DateUtils::HOUR;
+        }
+    }
+
+    private function storeEventValue(int $totalEventValue, DateTime $hourTimestamp): void
+    {
+        if ($totalEventValue > 0) {
+            TurnoverEntry::increaseOrInsert(
+                $hourTimestamp,
+                TurnoverEntryType::DspAdvertisersExpense,
+                $totalEventValue,
+            );
+        }
+    }
+
+    private function storeOperatorFee(int $totalOperatorFee, DateTime $hourTimestamp): void
+    {
+        if ($totalOperatorFee > 0) {
+            TurnoverEntry::increaseOrInsert($hourTimestamp, TurnoverEntryType::DspOperatorFee, $totalOperatorFee);
+        }
+    }
+
+    private function savePayment(string $accountAddress, int $fee): Payment
+    {
+        $payment = new Payment([
+            'account_address' => $accountAddress,
+            'state' => Payment::STATE_NEW,
+            'completed' => 0,
+            'fee' => $fee,
+        ]);
+        $payment->push();
+        return $payment;
+    }
+
+    private function saveLicensePayment(
+        ?string $licenseAccountAddress,
+        int $totalLicenseFee,
+        DateTimeInterface $hourTimestamp,
+    ): void {
+        if (null !== $licenseAccountAddress) {
+            $licensePayment = $this->savePayment($licenseAccountAddress, $totalLicenseFee);
+            $this->info(
+                sprintf(
+                    'and a license fee of %d clicks payable to %s',
+                    $licensePayment->fee,
+                    $licensePayment->account_address,
+                )
+            );
+            if ($totalLicenseFee > 0) {
+                TurnoverEntry::increaseOrInsert(
+                    $hourTimestamp,
+                    TurnoverEntryType::DspLicenseFee,
+                    $totalLicenseFee,
+                    $licenseAccountAddress,
+                );
+            }
+        }
+    }
+
+    private function saveCommunityPayment(
+        string $communityAccountAddress,
+        int $totalCommunityFee,
+        DateTimeInterface $hourTimestamp,
+    ): void {
+        $communityPayment = $this->savePayment($communityAccountAddress, $totalCommunityFee);
+        $this->info(
+            sprintf(
+                'and a community fee of %d clicks payable to %s',
+                $communityPayment->fee,
+                $communityPayment->account_address,
+            )
+        );
+        if ($totalCommunityFee > 0) {
+            TurnoverEntry::increaseOrInsert($hourTimestamp, TurnoverEntryType::DspCommunityFee, $totalCommunityFee);
         }
     }
 }

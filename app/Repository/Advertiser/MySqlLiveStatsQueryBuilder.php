@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -23,8 +23,11 @@ declare(strict_types=1);
 
 namespace Adshares\Adserver\Repository\Advertiser;
 
+use Adshares\Adserver\Http\Requests\Filter\StringFilter;
 use Adshares\Adserver\Repository\Common\MySqlQueryBuilder;
+use Adshares\Adserver\Utilities\SqlUtils;
 use Adshares\Advertiser\Repository\StatsRepository;
+use Adshares\Common\Domain\ValueObject\ChartResolution;
 use DateTimeInterface;
 
 use function in_array;
@@ -140,10 +143,10 @@ class MySqlLiveStatsQueryBuilder extends MySqlQueryBuilder
         return $this;
     }
 
-    public function appendResolution(string $resolution): self
+    public function appendResolution(ChartResolution $resolution): self
     {
         switch ($resolution) {
-            case StatsRepository::RESOLUTION_HOUR:
+            case ChartResolution::HOUR:
                 $this->column('YEAR(e.created_at) AS y');
                 $this->column('MONTH(e.created_at) as m');
                 $this->column('DAY(e.created_at) AS d');
@@ -153,7 +156,7 @@ class MySqlLiveStatsQueryBuilder extends MySqlQueryBuilder
                 $this->groupBy('d');
                 $this->groupBy('h');
                 break;
-            case StatsRepository::RESOLUTION_DAY:
+            case ChartResolution::DAY:
                 $this->column('YEAR(e.created_at) AS y');
                 $this->column('MONTH(e.created_at) as m');
                 $this->column('DAY(e.created_at) AS d');
@@ -161,23 +164,23 @@ class MySqlLiveStatsQueryBuilder extends MySqlQueryBuilder
                 $this->groupBy('m');
                 $this->groupBy('d');
                 break;
-            case StatsRepository::RESOLUTION_WEEK:
+            case ChartResolution::WEEK:
                 $this->column('YEARWEEK(e.created_at, 3) as yw');
                 $this->groupBy('yw');
                 break;
-            case StatsRepository::RESOLUTION_MONTH:
+            case ChartResolution::MONTH:
                 $this->column('YEAR(e.created_at) AS y');
                 $this->column('MONTH(e.created_at) as m');
                 $this->groupBy('y');
                 $this->groupBy('m');
                 break;
-            case StatsRepository::RESOLUTION_QUARTER:
+            case ChartResolution::QUARTER:
                 $this->column('YEAR(e.created_at) AS y');
                 $this->column('QUARTER(e.created_at) as q');
                 $this->groupBy('y');
                 $this->groupBy('q');
                 break;
-            case StatsRepository::RESOLUTION_YEAR:
+//            case ChartResolution::YEAR:
             default:
                 $this->column('YEAR(e.created_at) AS y');
                 $this->groupBy('y');
@@ -228,6 +231,20 @@ class MySqlLiveStatsQueryBuilder extends MySqlQueryBuilder
     {
         $this->column("IFNULL(e.domain, '') AS domain");
         $this->groupBy("IFNULL(e.domain, '')");
+
+        return $this;
+    }
+
+    public function appendMediumWhereClause(
+        ?StringFilter $mediumFilter,
+        ?StringFilter $vendorFilter,
+    ): self {
+        if (null !== ($media = $mediumFilter?->getValues())) {
+            $this->where(sprintf('c.medium IN (%s)', SqlUtils::quotAndJoin($media)));
+        }
+        if (null !== ($vendors = $vendorFilter?->getValues())) {
+            $this->where(sprintf('c.vendor IN (%s)', SqlUtils::quotAndJoin($vendors)));
+        }
 
         return $this;
     }

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -22,6 +22,7 @@
 namespace Adshares\Adserver\Models;
 
 use Adshares\Adserver\Utilities\ConfigTypes;
+use Adshares\Adserver\Utilities\DomainReader;
 use Adshares\Common\Application\Model\Currency;
 use Adshares\Common\Exception\RuntimeException;
 use Adshares\Common\Infrastructure\Service\LicenseReader;
@@ -57,6 +58,9 @@ class Config extends Model
     public const ADS_LOG_START = 'ads-log-start';
     public const ADS_OPERATOR_SERVER_URL = 'ads-operator-server-url';
     public const ADS_RPC_URL = 'ads-rpc-url';
+    public const ADS_TXT_CHECK_DEMAND_ENABLED = 'ads-txt-check-demand-enabled';
+    public const ADS_TXT_CHECK_SUPPLY_ENABLED = 'ads-txt-check-supply-enabled';
+    public const ADS_TXT_DOMAIN = 'ads-txt-domain';
     public const ADSELECT_INVENTORY_EXPORT_TIME = 'adselect-inventory-export';
     public const ADSELECT_URL = 'adselect-url';
     public const ADSERVER_NAME = 'adserver-name';
@@ -128,6 +132,7 @@ class Config extends Model
     public const INVOICE_CURRENCIES = 'invoice-currencies';
     public const INVOICE_ENABLED = 'invoice-enabled';
     public const INVOICE_NUMBER_FORMAT = 'invoice-number-format';
+    public const LANDING_URL = 'landing-url';
     public const LAST_UPDATED_IMPRESSION_ID = 'last-updated-impression-id';
     public const MAIL_FROM_ADDRESS = 'mail-from-address';
     public const MAIL_FROM_NAME = 'mail-from-name';
@@ -139,6 +144,7 @@ class Config extends Model
     public const MAIL_SMTP_USERNAME = 'mail-smtp-username';
     public const MAIN_JS_BASE_URL = 'main-js-base-url';
     public const MAIN_JS_TLD = 'main-js-tld';
+    public const MAX_INVALID_LOGIN_ATTEMPTS = 'max-invalid-login-attempts';
     public const MAX_PAGE_ZONES = 'max-page-zones';
     public const NETWORK_DATA_CACHE_TTL = 'network-data-cache-ttl';
     public const NOW_PAYMENTS_API_KEY = 'now-payments-api-key';
@@ -159,9 +165,12 @@ class Config extends Model
     public const REGISTRATION_MODE = 'registration-mode';
     public const SERVE_BASE_URL = 'serve-base-url';
     public const SITE_ACCEPT_BANNERS_MANUALLY = 'site-accept-banners-manually';
+    public const SITE_APPROVAL_REQUIRED = 'site-approval-required';
     public const SITE_CLASSIFIER_LOCAL_BANNERS = 'site-classifier-local-banners';
     public const SITE_FILTERING_EXCLUDE = 'site-filtering-exclude';
+    public const SITE_FILTERING_EXCLUDE_ON_AUTO_CREATE = 'site-filtering-exclude-on-auto-create';
     public const SITE_FILTERING_REQUIRE = 'site-filtering-require';
+    public const SITE_FILTERING_REQUIRE_ON_AUTO_CREATE = 'site-filtering-require-on-auto-create';
     public const SITE_VERIFICATION_NOTIFICATION_TIME_THRESHOLD = 'site-verification-time-threshold';
     public const SKYNET_API_KEY = 'skynet-api-key';
     public const SKYNET_API_URL = 'skynet-api-url';
@@ -170,6 +179,7 @@ class Config extends Model
     public const SUPPORT_EMAIL = 'support-email';
     public const SUPPORT_TELEGRAM = 'support-telegram';
     public const TECHNICAL_EMAIL = 'technical-email';
+    public const UPLOAD_LIMIT_DIRECT_LINK = 'upload-limit-direct-link';
     public const UPLOAD_LIMIT_IMAGE = 'upload-limit-image';
     public const UPLOAD_LIMIT_MODEL = 'upload-limit-model';
     public const UPLOAD_LIMIT_VIDEO = 'upload-limit-video';
@@ -209,6 +219,8 @@ class Config extends Model
     ];
 
     private const TYPE_CONVERSIONS = [
+        self::ADS_TXT_CHECK_DEMAND_ENABLED => ConfigTypes::Bool,
+        self::ADS_TXT_CHECK_SUPPLY_ENABLED => ConfigTypes::Bool,
         self::ADSHARES_NODE_PORT => ConfigTypes::Integer,
         self::ALLOW_ZONE_IN_IFRAME => ConfigTypes::Bool,
         self::AUTO_CONFIRMATION_ENABLED => ConfigTypes::Bool,
@@ -243,6 +255,7 @@ class Config extends Model
         self::INVOICE_COMPANY_BANK_ACCOUNTS => ConfigTypes::Json,
         self::INVOICE_CURRENCIES => ConfigTypes::Array,
         self::INVOICE_ENABLED => ConfigTypes::Bool,
+        self::MAX_INVALID_LOGIN_ATTEMPTS => ConfigTypes::Integer,
         self::MAX_PAGE_ZONES => ConfigTypes::Integer,
         self::MAIL_SMTP_PORT => ConfigTypes::Integer,
         self::NETWORK_DATA_CACHE_TTL => ConfigTypes::Integer,
@@ -255,6 +268,12 @@ class Config extends Model
         self::REFERRAL_REFUND_COMMISSION => ConfigTypes::Float,
         self::REFERRAL_REFUND_ENABLED => ConfigTypes::Bool,
         self::SITE_ACCEPT_BANNERS_MANUALLY => ConfigTypes::Bool,
+        self::SITE_APPROVAL_REQUIRED => ConfigTypes::Array,
+        self::SITE_FILTERING_EXCLUDE => ConfigTypes::Json,
+        self::SITE_FILTERING_EXCLUDE_ON_AUTO_CREATE => ConfigTypes::Json,
+        self::SITE_FILTERING_REQUIRE => ConfigTypes::Json,
+        self::SITE_FILTERING_REQUIRE_ON_AUTO_CREATE => ConfigTypes::Json,
+        self::UPLOAD_LIMIT_DIRECT_LINK => ConfigTypes::Integer,
         self::UPLOAD_LIMIT_IMAGE => ConfigTypes::Integer,
         self::UPLOAD_LIMIT_MODEL => ConfigTypes::Integer,
         self::UPLOAD_LIMIT_VIDEO => ConfigTypes::Integer,
@@ -281,7 +300,7 @@ class Config extends Model
 
     private static function whereKey(string $key): Builder
     {
-        return self::where('key', $key);
+        return self::query()->where('key', $key);
     }
 
     private static function fetchByKey(string $key): ?self
@@ -417,11 +436,15 @@ class Config extends Model
 
     private static function getDefaultAdminSettings(array $fetched = []): array
     {
+        $adpanelUrlDefault = 'http://localhost:8080';
         return [
-            self::ADPANEL_URL => 'http://localhost:8080',
+            self::ADPANEL_URL => $adpanelUrlDefault,
             self::ADPAY_URL => 'http://localhost:8012',
             self::ADS_OPERATOR_SERVER_URL => 'https://ads-operator.adshares.net',
             self::ADS_RPC_URL => 'https://rpc.adshares.net',
+            self::ADS_TXT_CHECK_DEMAND_ENABLED => false,
+            self::ADS_TXT_CHECK_SUPPLY_ENABLED => false,
+            self::ADS_TXT_DOMAIN => empty($fetched[self::URL]) ? '' : DomainReader::domain($fetched[self::URL]),
             self::ADSELECT_URL => 'http://localhost:8011',
             self::ADSERVER_NAME => 'AdServer',
             self::ADSHARES_ADDRESS => null,
@@ -445,7 +468,7 @@ class Config extends Model
             self::AUTO_WITHDRAWAL_LIMIT_BTC => 1_000_000_000_000_00,
             self::AUTO_WITHDRAWAL_LIMIT_ETH => 1_000_000_000_000_00,
             self::BANNER_FORCE_HTTPS => true,
-            self::BANNER_ROTATE_INTERVAL => 30,
+            self::BANNER_ROTATE_INTERVAL => 86400,
             self::BTC_WITHDRAW => false,
             self::BTC_WITHDRAW_FEE => 0.05,
             self::BTC_WITHDRAW_MAX_AMOUNT => 1000000000000000,
@@ -494,6 +517,7 @@ class Config extends Model
             self::INVOICE_CURRENCIES => [],
             self::INVOICE_ENABLED => false,
             self::INVOICE_NUMBER_FORMAT => 'INV NNNN/MM/YYYY',
+            self::LANDING_URL => $fetched[self::ADPANEL_URL] ?? $adpanelUrlDefault,
             self::MAIL_FROM_ADDRESS => $fetched[self::SUPPORT_EMAIL] ?? '',
             self::MAIL_FROM_NAME => 'Adshares AdServer',
             self::MAIL_MAILER => 'smtp',
@@ -504,6 +528,7 @@ class Config extends Model
             self::MAIL_SMTP_USERNAME => '',
             self::MAIN_JS_BASE_URL => $fetched[self::URL] ?? '',
             self::MAIN_JS_TLD => '',
+            self::MAX_INVALID_LOGIN_ATTEMPTS => 5,
             self::MAX_PAGE_ZONES => 4,
             self::NETWORK_DATA_CACHE_TTL => 60,
             self::NOW_PAYMENTS_API_KEY => '',
@@ -521,9 +546,12 @@ class Config extends Model
             self::REGISTRATION_MODE => RegistrationMode::PRIVATE,
             self::SERVE_BASE_URL => $fetched[self::URL] ?? '',
             self::SITE_ACCEPT_BANNERS_MANUALLY => false,
+            self::SITE_APPROVAL_REQUIRED => [],
             self::SITE_CLASSIFIER_LOCAL_BANNERS => self::CLASSIFIER_LOCAL_BANNERS_ALL_BY_DEFAULT,
-            self::SITE_FILTERING_EXCLUDE => '',
-            self::SITE_FILTERING_REQUIRE => '',
+            self::SITE_FILTERING_EXCLUDE => [],
+            self::SITE_FILTERING_EXCLUDE_ON_AUTO_CREATE => [],
+            self::SITE_FILTERING_REQUIRE => [],
+            self::SITE_FILTERING_REQUIRE_ON_AUTO_CREATE => [],
             self::SKYNET_API_KEY => '',
             self::SKYNET_API_URL => 'https://siasky.net',
             self::SKYNET_CDN_URL => '',
@@ -531,6 +559,7 @@ class Config extends Model
             self::SUPPORT_EMAIL => 'mail@example.com',
             self::SUPPORT_TELEGRAM => null,
             self::TECHNICAL_EMAIL => 'mail@example.com',
+            self::UPLOAD_LIMIT_DIRECT_LINK => 1024,
             self::UPLOAD_LIMIT_IMAGE => 512 * 1024,
             self::UPLOAD_LIMIT_MODEL => 1024 * 1024,
             self::UPLOAD_LIMIT_VIDEO => 1024 * 1024,

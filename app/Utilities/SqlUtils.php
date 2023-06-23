@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -23,6 +23,9 @@ declare(strict_types=1);
 
 namespace Adshares\Adserver\Utilities;
 
+use Adshares\Adserver\Facades\DB;
+use Closure;
+use DateTimeZone;
 use Illuminate\Database\QueryException;
 
 class SqlUtils
@@ -35,5 +38,38 @@ class SqlUtils
     {
         return self::SQL_ERROR_INTEGRITY_CONSTRAINT_VIOLATION === (int)$queryException->errorInfo[0]
             && self::SQL_ERROR_CODE_DUPLICATE_ENTRY === (int)$queryException->errorInfo[1];
+    }
+
+    public static function quotAndJoin(array $values): string
+    {
+        return join(
+            ',',
+            array_map(
+                fn($value) => "'" . $value . "'",
+                $values,
+            ),
+        );
+    }
+
+    public static function executeTimezoneAwareQuery(DateTimeZone $dateTimeZone, Closure $closure): mixed
+    {
+        $previousTimezone = self::setDbSessionTimezoneAndGetPrevious($dateTimeZone);
+        $result = $closure();
+        if ($previousTimezone) {
+            self::setDbSessionTimeZone($previousTimezone);
+        }
+        return $result;
+    }
+
+    public static function setDbSessionTimezoneAndGetPrevious(DateTimeZone $dateTimeZone): string
+    {
+        $row = DB::selectOne('SELECT @@session.time_zone AS tz');
+        self::setDbSessionTimeZone($dateTimeZone->getName());
+        return $row->tz ?? '';
+    }
+
+    public static function setDbSessionTimeZone(string $timezone): void
+    {
+        DB::statement(sprintf("SET time_zone = '%s'", $timezone));
     }
 }

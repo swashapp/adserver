@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -31,6 +31,7 @@ use Adshares\Adserver\Console\Locker;
 use Adshares\Adserver\Events\ServerEvent;
 use Adshares\Adserver\Http\Response\InfoResponse;
 use Adshares\Adserver\Models\NetworkHost;
+use Adshares\Adserver\Utilities\DomainReader;
 use Adshares\Adserver\ViewModel\ServerEventType;
 use Adshares\Common\Exception\RuntimeException;
 use Adshares\Config\AppMode;
@@ -89,6 +90,7 @@ class AdsFetchHosts extends BaseCommand
         $added = NetworkHost::all()->count() - $hostsCount;
         $removed = $this->removeOldHosts();
         $marked = $this->markHostsWhichDoesNotBroadcast();
+        NetworkHost::handleWhitelist();
         ServerEvent::dispatch(ServerEventType::HostBroadcastProcessed, [
             'added' => $added,
             'found' => $found,
@@ -181,6 +183,14 @@ class AdsFetchHosts extends BaseCommand
         }
         if (AppMode::INITIALIZATION === $info->getAppMode()) {
             return 'Ad server is in initialization mode';
+        }
+        $adsTxtDomain = $info->getAdsTxtDomain();
+        if (!str_contains($adsTxtDomain, '.')) {
+            return 'Invalid ads.txt domain';
+        }
+        $serverDomain = DomainReader::domain($info->getInventoryUrl());
+        if ($serverDomain !== $adsTxtDomain && !str_contains($serverDomain, sprintf('.%s', $adsTxtDomain))) {
+            return 'Ads.txt domain does not match inventory URL';
         }
         return null;
     }

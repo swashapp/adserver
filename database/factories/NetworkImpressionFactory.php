@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -32,6 +32,7 @@ class NetworkImpressionFactory extends Factory
         return [
             'impression_id' => $this->faker->uuid,
             'tracking_id' => $this->faker->uuid,
+            'human_score' => 0.5,
             'context' => json_decode(<<<JSON
 {
     "site": {
@@ -80,6 +81,7 @@ class NetworkImpressionFactory extends Factory
         }
     },
     "user": {
+        "account": "0x05cf6d580d124d6eda7fd065b2cd239b08e2fd68",
         "uid": "KeU0jaHoz5UsW3VnpQjSbPKQ53zNpw",
         "keywords": {
             "interest": [

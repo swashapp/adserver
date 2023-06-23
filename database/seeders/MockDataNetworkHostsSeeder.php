@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -44,6 +44,7 @@ class MockDataNetworkHostsSeeder extends Seeder
             '0.1',
             new Url('http://webserver'),
             new Url('http://localhost:4200'),
+            new Url('https://example.com'),
             new Url('http://webserver/policies/privacy.html'),
             new Url('http://webserver/policies/terms.html'),
             new Url('http://webserver/adshares/inventory/list'),
@@ -51,7 +52,9 @@ class MockDataNetworkHostsSeeder extends Seeder
             new Email('mail@example.com'),
             [Info::CAPABILITY_PUBLISHER, Info::CAPABILITY_ADVERTISER],
             RegistrationMode::PUBLIC,
-            AppMode::OPERATIONAL
+            AppMode::OPERATIONAL,
+            'example.com',
+            false,
         );
 
         $info->setDemandFee(0.01);

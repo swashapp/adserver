@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -24,18 +24,26 @@ declare(strict_types=1);
 namespace Adshares\Adserver\Tests\Console\Commands;
 
 use Adshares\Adserver\Models\Campaign;
+use Adshares\Adserver\Models\Config;
 use Adshares\Adserver\Models\Conversion;
 use Adshares\Adserver\Models\ConversionDefinition;
 use Adshares\Adserver\Models\EventLog;
-use Adshares\Adserver\Models\User;
+use Adshares\Adserver\Models\NetworkHost;
+use Adshares\Adserver\Services\Common\AdsTxtCrawler;
 use Adshares\Adserver\Tests\Console\ConsoleTestCase;
 use Adshares\Common\Application\Service\AdUser;
 use Adshares\Common\Domain\ValueObject\Uuid;
+use Adshares\Common\Exception\RuntimeException;
 use Adshares\Demand\Application\Dto\AdPayEvents;
 use Adshares\Demand\Application\Service\AdPay;
 use Adshares\Supply\Application\Dto\UserContext;
-use DateTime;
+use Adshares\Supply\Application\Service\Exception\UnexpectedClientResponseException;
+use DateTimeImmutable;
 use DateTimeInterface;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\Lock\Key;
+use Symfony\Component\Lock\Lock;
+use Symfony\Component\Lock\Store\FlockStore;
 
 class AdPayEventExportCommandTest extends ConsoleTestCase
 {
@@ -52,24 +60,240 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
 
     public function testExportView(): void
     {
+        $event = $this->insertEventView();
+        $event->domain = 'my.example.com';
+        $event->saveOrFail();
+        $eventDate = $event->created_at->format(DateTimeInterface::ATOM);
         $this->bindAdUser();
+        Config::updateAdminSettings([Config::ADS_TXT_CHECK_DEMAND_ENABLED => '1']);
+        $adServerDomain = NetworkHost::fetchByAddress('0001-00000004-DBEB')->info->getAdsTxtDomain();
+        $adsTxtCrawler = $this->createMock(AdsTxtCrawler::class);
+        $adsTxtCrawler->expects(self::atLeastOnce())
+            ->method('checkSite')
+            ->with('https://my.example.com', $adServerDomain, $event->publisher_id)
+            ->willReturn(true);
+        $this->instance(AdsTxtCrawler::class, $adsTxtCrawler);
 
         $adPay = $this->createMock(AdPay::class);
-        $adPay->expects(self::atLeastOnce())->method('addViews')->will(
-            self::checkEventCount(1)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(
-            self::checkEventCount(0)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(
-            self::checkEventCount(0)
-        );
+        $adPay->expects(self::atLeastOnce())
+            ->method('addViews')
+            ->will(
+                self::returnCallback(
+                    function (AdPayEvents $adPayEvents) {
+                        $events = $adPayEvents->toArray()['events'];
+                        self::assertCount(1, $events);
+                        self::assertEquals(1, $events[0]['ads_txt']);
+                    }
+                )
+            );
+        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(self::checkEventCount(0));
         $this->instance(AdPay::class, $adPay);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+    }
+
+    public function testExportViewWhileEventPayToHasNoMatchingNetworkHost(): void
+    {
+        $event = $this->insertEventView();
+        $event->domain = 'my.example.com';
+        $event->pay_to = '0001-00000001-8B4E';
+        $event->saveOrFail();
+        $eventDate = $event->created_at->format(DateTimeInterface::ATOM);
+        $this->bindAdUser();
+        Config::updateAdminSettings([Config::ADS_TXT_CHECK_DEMAND_ENABLED => '1']);
+        $adsTxtCrawler = $this->createMock(AdsTxtCrawler::class);
+        $adsTxtCrawler->expects(self::never())->method('checkSite');
+        $this->instance(AdsTxtCrawler::class, $adsTxtCrawler);
+        $adPay = $this->createMock(AdPay::class);
+        $adPay->expects(self::atLeastOnce())
+            ->method('addViews')
+            ->will(
+                self::returnCallback(
+                    function (AdPayEvents $adPayEvents) {
+                        $events = $adPayEvents->toArray()['events'];
+                        self::assertCount(1, $events);
+                        self::assertEquals(0, $events[0]['ads_txt']);
+                    }
+                )
+            );
+        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(self::checkEventCount(0));
+        $this->instance(AdPay::class, $adPay);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+    }
+
+    public function testExportViewWhileUserDataIsPresent(): void
+    {
+        $adUser = $this->createMock(AdUser::class);
+        $adUser->expects(self::never())->method('getUserContext');
+        $this->app->bind(
+            AdUser::class,
+            function () use ($adUser) {
+                return $adUser;
+            }
+        );
+
+        $event = EventLog::factory()->create(
+            [
+                'campaign_id' => Campaign::factory()->create()->uuid,
+                'event_type' => EventLog::TYPE_VIEW,
+                'human_score' => 0.51,
+                'our_userdata' => [],
+            ]
+        );
+        $eventDate = $event->created_at->format(DateTimeInterface::ATOM);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+    }
+
+    public function testExportViewWhileUserDataIsUnavailable(): void
+    {
+        Log::spy();
+        $adUser = $this->createMock(AdUser::class);
+        $adUser->expects(self::once())
+            ->method('getUserContext')
+            ->willThrowException(new RuntimeException('test-exception'));
+        $this->app->bind(
+            AdUser::class,
+            function () use ($adUser) {
+                return $adUser;
+            }
+        );
 
         $event = $this->insertEventView();
         $eventDate = $event->created_at->format(DateTimeInterface::ATOM);
 
         $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+        Log::shouldHaveReceived('error')->once();
+    }
+
+    public function testExportViewWhileExternalUserIdIsMissingForDecentraland(): void
+    {
+        $event = $this->insertEventView();
+        $event->domain = 'my.example.com';
+        $event->medium = 'metaverse';
+        $event->vendor = 'decentraland';
+        $event->saveOrFail();
+        $eventDate = $event->created_at->format(DateTimeInterface::ATOM);
+        $this->bindAdUser();
+
+        $adPay = $this->createMock(AdPay::class);
+        $adPay->expects(self::atLeastOnce())
+            ->method('addViews')
+            ->will(
+                self::returnCallback(
+                    function (AdPayEvents $adPayEvents) {
+                        $events = $adPayEvents->toArray()['events'];
+                        self::assertCount(1, $events);
+                        self::assertEquals(
+                            0,
+                            $events[0]['human_score'],
+                            sprintf(
+                                'Failed asserting that human_score %s matches expected 0.',
+                                $events[0]['human_score'],
+                            ),
+                        );
+                    }
+                )
+            );
+        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(self::checkEventCount(0));
+        $this->instance(AdPay::class, $adPay);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+    }
+
+    public function testExportViewAndConversionWhileTooManyEventsInSecond(): void
+    {
+        $this->bindAdUser();
+
+        $adPay = $this->createMock(AdPay::class);
+        $adPay->expects(self::never())->method('addViews');
+        $adPay->expects(self::never())->method('addClicks');
+        $adPay->expects(self::never())->method('addConversions');
+        $this->instance(AdPay::class, $adPay);
+
+        /** @var Campaign $campaign */
+        $campaign = Campaign::factory()->create();
+        $createdAt = new DateTimeImmutable();
+        $events = EventLog::factory()->count(501)->create(
+            [
+                'campaign_id' => $campaign->uuid,
+                'event_type' => EventLog::TYPE_VIEW,
+                'created_at' => $createdAt,
+            ]
+        );
+        $conversionDefinition = new ConversionDefinition();
+        $conversionDefinition->fill(
+            [
+                'campaign_id' => $campaign->id,
+                'name' => 'basic-1',
+                'event_type' => 'Purchase',
+                'type' => ConversionDefinition::BASIC_TYPE,
+                'value' => 1000000000,
+                'limit' => 100000000000,
+                'limit_type' => 'in_budget',
+                'is_repeatable' => false,
+                'is_value_mutable' => false,
+            ]
+        );
+        $campaign->conversions()->save($conversionDefinition);
+
+        foreach ($events as $event) {
+            Conversion::factory()->create(
+                [
+                    'conversion_definition_id' => $conversionDefinition->id,
+                    'created_at' => $createdAt,
+                    'event_logs_id' => $event->id,
+                    'pay_to' => '0001-00000001-8B4E',
+                ]
+            );
+        }
+        $eventDate = $createdAt->format(DateTimeInterface::ATOM);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $eventDate, '--to' => $eventDate])->assertExitCode(0);
+    }
+
+    public function testExportViewRecoverableAdPayError(): void
+    {
+        $this->bindAdUser();
+
+        $adPay = self::createMock(AdPay::class);
+        $adPay->expects(self::exactly(2))->method('addViews')->willReturnOnConsecutiveCalls(
+            self::throwException(new UnexpectedClientResponseException('test-exception')),
+        );
+        $this->instance(AdPay::class, $adPay);
+
+        $dateTo = new DateTimeImmutable();
+        $dateFrom = $dateTo->modify('-5 minutes');
+        self::insertTwoPackagesOfViewEvent($dateFrom, $dateTo);
+        $from = $dateFrom->format(DateTimeInterface::ATOM);
+        $to = $dateTo->format(DateTimeInterface::ATOM);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $from, '--to' => $to, '--threads' => 2])
+            ->assertExitCode(0);
+    }
+
+    public function testExportViewNotRecoverableAdPayError(): void
+    {
+        $this->bindAdUser();
+
+        $adPay = self::createMock(AdPay::class);
+        $adPay->method('addViews')->willThrowException(
+            new UnexpectedClientResponseException('test-exception'),
+        );
+        $this->instance(AdPay::class, $adPay);
+
+        $dateTo = new DateTimeImmutable();
+        $dateFrom = $dateTo->modify('-5 minutes');
+        self::insertTwoPackagesOfViewEvent($dateFrom, $dateTo);
+        $from = $dateFrom->format(DateTimeInterface::ATOM);
+        $to = $dateTo->format(DateTimeInterface::ATOM);
+
+        $this->artisan('ops:adpay:event:export', ['--from' => $from, '--to' => $to, '--threads' => 2])
+            ->assertExitCode(1);
     }
 
     private static function checkEventCount(int $eventCount)
@@ -86,15 +310,9 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
         $this->bindAdUser();
 
         $adPay = $this->createMock(AdPay::class);
-        $adPay->expects(self::atLeastOnce())->method('addViews')->will(
-            self::checkEventCount(0)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(
-            self::checkEventCount(1)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(
-            self::checkEventCount(0)
-        );
+        $adPay->expects(self::atLeastOnce())->method('addViews')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(self::checkEventCount(1));
+        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(self::checkEventCount(0));
         $this->instance(AdPay::class, $adPay);
 
         $event = $this->insertEventClick();
@@ -108,15 +326,9 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
         $this->bindAdUser();
 
         $adPay = $this->createMock(AdPay::class);
-        $adPay->expects(self::atLeastOnce())->method('addViews')->will(
-            self::checkEventCount(0)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(
-            self::checkEventCount(0)
-        );
-        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(
-            self::checkEventCount(1)
-        );
+        $adPay->expects(self::atLeastOnce())->method('addViews')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addClicks')->will(self::checkEventCount(0));
+        $adPay->expects(self::atLeastOnce())->method('addConversions')->will(self::checkEventCount(1));
         $this->instance(AdPay::class, $adPay);
 
         $event = $this->insertEventConversion();
@@ -139,7 +351,8 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
         $adPay->expects(self::never())->method('addConversions');
         $this->instance(AdPay::class, $adPay);
 
-        $this->artisan('ops:adpay:event:export', ['--from' => $from, '--to' => $to])->assertExitCode(0);
+        $this->artisan('ops:adpay:event:export', ['--from' => $from, '--to' => $to])
+            ->assertExitCode(1);
     }
 
     public function invalidOptionsProvider(): array
@@ -150,6 +363,30 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
             'invalid to' => ['2019-12-01', 'zzz'],
             'invalid range' => ['2019-12-01 12:00:01', '2019-12-01 12:00:00'],
         ];
+    }
+
+    public function testInvalidOptionsConversionRange(): void
+    {
+        Config::updateAdminSettings([
+            Config::ADPAY_LAST_EXPORTED_CONVERSION_TIME => (new DateTimeImmutable())->format(DateTimeInterface::ATOM)
+        ]);
+        $adPay = $this->createMock(AdPay::class);
+        $adPay->expects(self::never())->method('addViews');
+        $adPay->expects(self::never())->method('addClicks');
+        $adPay->expects(self::never())->method('addConversions');
+        $this->instance(AdPay::class, $adPay);
+
+        $this->artisan('ops:adpay:event:export')
+            ->assertExitCode(1);
+    }
+
+    public function testLock(): void
+    {
+        $lock = new Lock(new Key('ops:adpay:event:export'), new FlockStore(), null, false);
+        $lock->acquire();
+
+        $this->artisan('ops:adpay:event:export')
+            ->assertExitCode(1);
     }
 
     private function bindAdUser(): void
@@ -196,10 +433,8 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
 
     private function insertEventConversion(): Conversion
     {
-        $user = User::factory()->create();
         $campaign = Campaign::factory()->create(
             [
-                'user_id' => $user->id,
                 'budget' => 100000000000,
             ]
         );
@@ -207,7 +442,7 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
         /** @var EventLog $eventLog */
         $eventLog = EventLog::factory()->create(
             [
-                'created_at' => new DateTime('-1 hour'),
+                'created_at' => new DateTimeImmutable('-1 hour'),
                 'event_type' => EventLog::TYPE_VIEW,
                 'campaign_id' => $campaign->uuid,
             ]
@@ -245,11 +480,15 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
 
     private function insertEvent(string $eventType): EventLog
     {
-        $user = User::factory()->create();
+        /** @var Campaign $campaign */
         $campaign = Campaign::factory()->create(
             [
-                'user_id' => $user->id,
                 'budget' => 100000000000,
+            ]
+        );
+        NetworkHost::factory()->create(
+            [
+                'address' => '0001-00000004-DBEB',
             ]
         );
 
@@ -257,7 +496,36 @@ class AdPayEventExportCommandTest extends ConsoleTestCase
             [
                 'event_type' => $eventType,
                 'campaign_id' => $campaign->uuid,
+                'pay_to' => '0001-00000004-DBEB',
             ]
         );
+    }
+
+    private static function insertTwoPackagesOfViewEvent(DateTimeInterface $from, DateTimeInterface $to): void
+    {
+        /** @var Campaign $campaign */
+        $campaign = Campaign::factory()->create(
+            [
+                'budget' => 100000000000,
+            ]
+        );
+
+        $count = 1000;
+        $start = $from->getTimestamp();
+        $period = $to->getTimestamp() - $start;
+        $delay = $period / $count;
+
+        EventLog::factory()
+            ->count($count)
+            ->sequence(function ($sequence) use ($start, $delay) {
+                $timestamp = $start + (int)floor($sequence->index * $delay);
+                return ['created_at' => new DateTimeImmutable('@' . $timestamp)];
+            })
+            ->create(
+                [
+                    'event_type' => EventLog::TYPE_VIEW,
+                    'campaign_id' => $campaign->uuid,
+                ]
+            );
     }
 }

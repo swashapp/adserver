@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -49,13 +49,15 @@ class NetworkHostFactory extends Factory
             AccountId::fromIncompleteString('0001-00000008'),
         ];
 
-        $host = 'https://' . parse_url($this->faker->url, PHP_URL_HOST);
+        $domain = parse_url($this->faker->url, PHP_URL_HOST);
+        $host = 'https://' . $domain;
         $info = new Info(
             'adserver',
             $this->faker->domainWord,
             '0.1',
             new Url($host),
             new Url($host . ':4200'),
+            new Url($host),
             new Url($host . '/policies/privacy.html'),
             new Url($host . '/policies/terms.html'),
             new Url($host . '/adshares/inventory/list'),
@@ -63,7 +65,9 @@ class NetworkHostFactory extends Factory
             new Email($this->faker->companyEmail),
             [Info::CAPABILITY_PUBLISHER, Info::CAPABILITY_ADVERTISER],
             RegistrationMode::PUBLIC,
-            AppMode::OPERATIONAL
+            AppMode::OPERATIONAL,
+            $domain,
+            false,
         );
 
         $info->setDemandFee(0.01);

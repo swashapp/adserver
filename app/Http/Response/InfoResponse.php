@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -70,6 +70,7 @@ final class InfoResponse implements Arrayable
                 config('app.version'),
                 new SecureUrl(config('app.url')),
                 new Url(config('app.adpanel_url')),
+                new Url(config('app.landing_url')),
                 new SecureUrl(config('app.url') . route('privacy-url', [], false)),
                 new SecureUrl(config('app.url') . route('terms-url', [], false)),
                 new SecureUrl(config('app.url') . route('demand-inventory', [], false)),
@@ -79,6 +80,8 @@ final class InfoResponse implements Arrayable
                 [Info::CAPABILITY_ADVERTISER, Info::CAPABILITY_PUBLISHER],
                 config('app.registration_mode'),
                 AppMode::getAppMode(),
+                config('app.ads_txt_domain'),
+                config('app.ads_txt_check_demand_enabled'),
             )
         );
     }

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2021 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -23,11 +23,14 @@ declare(strict_types=1);
 
 namespace Adshares\Advertiser\Repository;
 
+use Adshares\Adserver\Http\Requests\Filter\FilterCollection;
 use Adshares\Advertiser\Dto\Result\ChartResult;
 use Adshares\Advertiser\Dto\Result\Stats\ConversionDataCollection;
 use Adshares\Advertiser\Dto\Result\Stats\DataCollection;
 use Adshares\Advertiser\Dto\Result\Stats\Total;
+use Adshares\Common\Domain\ValueObject\ChartResolution;
 use DateTime;
+use DateTimeInterface;
 
 interface StatsRepository
 {
@@ -46,121 +49,128 @@ interface StatsRepository
     public const TYPE_STATS = 'stats';
     public const TYPE_STATS_REPORT = 'statsReport';
 
-    public const RESOLUTION_HOUR = 'hour';
-    public const RESOLUTION_DAY = 'day';
-    public const RESOLUTION_WEEK = 'week';
-    public const RESOLUTION_MONTH = 'month';
-    public const RESOLUTION_QUARTER = 'quarter';
-    public const RESOLUTION_YEAR = 'year';
-
     public function fetchView(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchViewAll(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchViewInvalidRate(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchViewUnique(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchClick(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchClickAll(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchClickInvalidRate(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchCpc(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchCpm(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchSum(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchSumPayment(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchCtr(
         string $advertiserId,
-        string $resolution,
+        ChartResolution $resolution,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): ChartResult;
 
     public function fetchStats(
         ?string $advertiserId,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): DataCollection;
 
     public function fetchStatsTotal(
         ?string $advertiserId,
         DateTime $dateStart,
         DateTime $dateEnd,
-        ?string $campaignId = null
+        ?string $campaignId = null,
+        ?FilterCollection $filters = null,
     ): Total;
 
     public function fetchStatsToReport(
@@ -178,5 +188,5 @@ interface StatsRepository
         ?int $campaignId = null
     ): ConversionDataCollection;
 
-    public function aggregateStatistics(DateTime $dateStart, DateTime $dateEnd): void;
+    public function aggregateStatistics(DateTimeInterface $dateStart, DateTimeInterface $dateEnd): void;
 }

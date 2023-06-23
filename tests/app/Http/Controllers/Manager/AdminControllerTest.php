@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -27,6 +27,7 @@ use Adshares\Common\Application\Service\LicenseVault;
 use Adshares\Common\Domain\ValueObject\AccountId;
 use Adshares\Common\Domain\ValueObject\Commission;
 use Adshares\Common\Domain\ValueObject\License;
+use Adshares\Common\Exception\RuntimeException;
 use DateTimeImmutable;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -85,6 +86,11 @@ final class AdminControllerTest extends TestCase
     public function testGetLicenseFail(): void
     {
         $this->actingAs(User::factory()->admin()->create(), 'api');
+        $licenseVault = self::createMock(LicenseVault::class);
+        $licenseVault->expects(self::once())
+            ->method('read')
+            ->willThrowException(new RuntimeException('test-exception'));
+        $this->app->bind(LicenseVault::class, fn() => $licenseVault);
 
         $response = $this->get(self::URI_LICENSE);
 

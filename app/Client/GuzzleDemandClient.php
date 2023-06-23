@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -31,6 +31,7 @@ use Adshares\Adserver\Services\Common\ClassifierExternalSignatureVerifier;
 use Adshares\Adserver\Services\Supply\SiteFilteringUpdater;
 use Adshares\Adserver\Utilities\AdsAuthenticator;
 use Adshares\Adserver\ViewModel\MediumName;
+use Adshares\Adserver\ViewModel\MetaverseVendor;
 use Adshares\Common\Application\Service\SignatureVerifier;
 use Adshares\Common\Domain\ValueObject\AccountId;
 use Adshares\Common\Domain\ValueObject\Uuid;
@@ -55,10 +56,6 @@ final class GuzzleDemandClient implements DemandClient
 {
     private const VERSION = '0.1';
     private const DEFAULT_VENDOR = null;
-    private const METAVERSE_VENDORS = [
-        'cryptovoxels' => 'cryptovoxels.com',
-        'decentraland' => 'decentraland.org',
-    ];
     private const PAYMENT_DETAILS_ENDPOINT = '/payment-details/{transactionId}/{accountAddress}/{date}/{signature}'
     . '?limit={limit}&offset={offset}';
 
@@ -68,19 +65,17 @@ final class GuzzleDemandClient implements DemandClient
         private readonly Client $client,
         private readonly SignatureVerifier $signatureVerifier,
         private readonly AdsAuthenticator $adsAuthenticator,
-        private readonly int $timeout
     ) {
     }
 
     public function fetchAllInventory(
         AccountId $sourceAddress,
         string $sourceHost,
-        string $inventoryUrl
+        string $inventoryUrl,
+        bool $isAdsTxtRequiredBySourceHost,
     ): CampaignCollection {
-        $client = new Client($this->requestParameters());
-
         try {
-            $response = $client->get($inventoryUrl);
+            $response = $this->client->get($inventoryUrl, $this->requestParameters());
         } catch (ClientExceptionInterface $exception) {
             throw new UnexpectedClientResponseException(
                 sprintf('Could not connect to %s host (%s).', $sourceHost, $exception->getMessage()),
@@ -99,6 +94,7 @@ final class GuzzleDemandClient implements DemandClient
         $campaignDemandIdsToSupplyIds = $this->getCampaignDemandIdsToSupplyIds($campaigns, $address);
         $bannerDemandIdsToSupplyIds = $this->getBannerDemandIdsToSupplyIds($campaigns, $address);
 
+        $rejectCampaignsRequiringAdsTxt = $isAdsTxtRequiredBySourceHost && !config('app.ads_txt_check_supply_enabled');
         $campaignsCollection = new CampaignCollection();
         foreach ($campaigns as $data) {
             try {
@@ -112,6 +108,10 @@ final class GuzzleDemandClient implements DemandClient
                             $bannerDemandIdsToSupplyIds
                         )
                     );
+                if ($rejectCampaignsRequiringAdsTxt && MediumName::Web->value === $campaign->getMedium()) {
+                    Log::info(sprintf('[Inventory Importer] Reject campaign %s', $campaign->getDemandCampaignId()));
+                    continue;
+                }
                 $campaignsCollection->add($campaign);
             } catch (RuntimeException $exception) {
                 Log::info(sprintf('[Inventory Importer] %s', $exception->getMessage()));
@@ -123,8 +123,6 @@ final class GuzzleDemandClient implements DemandClient
 
     public function fetchPaymentDetails(string $host, string $transactionId, int $limit, int $offset): array
     {
-        $client = new Client($this->requestParameters($host));
-
         $privateKey = Crypt::decryptString(config('app.adshares_secret'));
         $accountAddress = config('app.adshares_address');
         $date = new DateTime();
@@ -158,7 +156,7 @@ final class GuzzleDemandClient implements DemandClient
         );
 
         try {
-            $response = $client->get($endpoint);
+            $response = $this->client->get($endpoint, $this->requestParameters($host));
         } catch (ClientExceptionInterface $exception) {
             throw new UnexpectedClientResponseException(
                 sprintf('Transaction not found: %s.', $exception->getMessage()),
@@ -211,7 +209,6 @@ final class GuzzleDemandClient implements DemandClient
                     Crypt::decryptString(config('app.adshares_secret'))
                 ),
             ],
-            RequestOptions::TIMEOUT => $this->timeout,
         ];
 
         if ($baseUrl) {
@@ -307,7 +304,8 @@ final class GuzzleDemandClient implements DemandClient
         if ($data['targeting_requires']['site']['domain'] ?? false) {
             $domains = $data['targeting_requires']['site']['domain'];
 
-            foreach (self::METAVERSE_VENDORS as $vendor => $vendorDomain) {
+            foreach (MetaverseVendor::cases() as $metaverseVendor) {
+                $vendorDomain = $metaverseVendor->baseDomain();
                 $matchesCount = 0;
                 foreach ($domains as $domain) {
                     if (!str_ends_with($domain, $vendorDomain)) {
@@ -316,7 +314,7 @@ final class GuzzleDemandClient implements DemandClient
                     ++$matchesCount;
                 }
                 if (count($domains) === $matchesCount) {
-                    return [MediumName::Metaverse->value, $vendor];
+                    return [MediumName::Metaverse->value, $metaverseVendor->value];
                 }
             }
         }

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -39,6 +39,7 @@ use Adshares\Adserver\Services\AdsExchange;
 use Adshares\Adserver\Services\NowPayments;
 use Adshares\Adserver\Utilities\AdsUtils;
 use Adshares\Adserver\Utilities\NonceGenerator;
+use Adshares\Adserver\Utilities\SqlUtils;
 use Adshares\Adserver\ViewModel\ServerEventType;
 use Adshares\Common\Application\Dto\ExchangeRate;
 use Adshares\Common\Application\Model\Currency;
@@ -156,7 +157,7 @@ class WalletController extends Controller
 
         $addressTo = $this->getWalletAdsAddress($rpcClient, $address);
         $amount = $request->input(self::FIELD_AMOUNT);
-        $balance = $user->getWalletBalance();
+        $balance = $user->getWithdrawableBalance();
         $maxAmount = AdsUtils::calculateAmount($addressFrom, $addressTo, $balance);
         if (null === $amount) {
             $amount = $maxAmount;
@@ -485,7 +486,7 @@ class WalletController extends Controller
         $adsFee = AdsUtils::calculateFee($addressFrom, $addressTo, $amount);
         $total = $amount + $adsFee;
 
-        if ($user->getWalletBalance() < $total) {
+        if ($user->getWithdrawableBalance() < $total) {
             throw new UnprocessableEntityHttpException();
         }
 
@@ -559,7 +560,7 @@ class WalletController extends Controller
         /** @var User $user */
         $user = Auth::user();
 
-        if ($user->getWalletBalance() < $amount) {
+        if ($user->getWithdrawableBalance() < $amount) {
             return self::json([], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
@@ -863,9 +864,10 @@ class WalletController extends Controller
         $changeDbSessionTimezone = null !== $from;
         if ($changeDbSessionTimezone) {
             $dateTimeZone = new DateTimeZone($from->format('O'));
-            $this->setDbSessionTimezone($dateTimeZone);
+            $previousTimezone = SqlUtils::setDbSessionTimezoneAndGetPrevious($dateTimeZone);
         } else {
             $dateTimeZone = null;
+            $previousTimezone = '';
         }
 
         $builder = UserLedgerEntry::getBillingHistoryBuilder($userId, $types, $from, $to);
@@ -892,8 +894,8 @@ class WalletController extends Controller
             }
         }
 
-        if ($changeDbSessionTimezone) {
-            $this->unsetDbSessionTimeZone();
+        if ($changeDbSessionTimezone && $previousTimezone) {
+            SqlUtils::setDbSessionTimeZone($previousTimezone);
         }
 
         $resp['limit'] = (int)$limit;
@@ -903,21 +905,6 @@ class WalletController extends Controller
         $resp['items'] = $items;
 
         return self::json($resp);
-    }
-
-    private function setDbSessionTimezone(DateTimeZone $dateTimeZone): void
-    {
-        if (DB::isMySql()) {
-            DB::statement('SET @tmp_time_zone = (SELECT @@session.time_zone)');
-            DB::statement(sprintf("SET time_zone = '%s'", $dateTimeZone->getName()));
-        }
-    }
-
-    private function unsetDbSessionTimeZone(): void
-    {
-        if (DB::isMySql()) {
-            DB::statement('SET time_zone = (SELECT @tmp_time_zone)');
-        }
     }
 
     private function getUserLedgerEntryAddress(stdClass $ledgerItem): ?string

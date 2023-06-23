@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Copyright (c) 2018-2022 Adshares sp. z o.o.
+ * Copyright (c) 2018-2023 Adshares sp. z o.o.
  *
  * This file is part of AdServer
  *
@@ -29,6 +29,8 @@ use Adshares\Adserver\Models\Traits\BinHex;
 use Adshares\Adserver\Models\Traits\JsonValue;
 use Adshares\Adserver\Services\Demand\AdPayPaymentReportProcessor;
 use Adshares\Adserver\Utilities\DomainReader;
+use Adshares\Adserver\ViewModel\MediumName;
+use Adshares\Adserver\ViewModel\MetaverseVendor;
 use Adshares\Common\Domain\ValueObject\Uuid;
 use Adshares\Supply\Application\Dto\UserContext;
 use DateTime;
@@ -64,17 +66,21 @@ use function hex2bin;
  * @property float page_rank
  * @property string our_userdata
  * @property string their_userdata
- * @property int $event_value_currency
- * @property int $exchange_rate
- * @property int $event_value
- * @property int $license_fee
- * @property int $operator_fee
- * @property int $paid_amount
+ * @property int event_value_currency
+ * @property int exchange_rate
+ * @property int event_value
+ * @property int license_fee
+ * @property int operator_fee
+ * @property int community_fee
+ * @property int paid_amount
  * @property int payment_id
- * @property int $payment_status
+ * @property int payment_status
  * @property int is_view_clicked
  * @property string domain
  * @property int id
+ * @property string medium
+ * @property string|null $vendor
+ * @property int|null ads_txt
  * @mixin Builder
  */
 class EventLog extends Model
@@ -220,7 +226,9 @@ SQL;
         string $payTo,
         array $context,
         string $userData,
-        string $type
+        string $type,
+        string $medium,
+        ?string $vendor,
     ): void {
         DB::beginTransaction();
 
@@ -238,6 +246,8 @@ SQL;
         $log->their_userdata = $userData;
         $log->event_type = $type;
         $log->domain = self::fetchDomainFromMatchingEvent($type, $caseId) ?: self::getDomainFromContext($context);
+        $log->medium = $medium;
+        $log->vendor = $vendor;
         $log->created_at = new DateTime();
         $log->updated_at = new DateTime();
 
@@ -266,9 +276,11 @@ SQL;
         array $context,
         string $theirUserData,
         string $type,
+        string $medium,
+        ?string $vendor,
         ?float $humanScore,
         ?float $pageRank,
-        ?stdClass $ourUserData
+        ?stdClass $ourUserData,
     ): void {
         DB::beginTransaction();
 
@@ -286,6 +298,8 @@ SQL;
         $log->their_userdata = $theirUserData;
         $log->event_type = $type;
         $log->domain = self::fetchDomainFromMatchingEvent($type, $caseId) ?: self::getDomainFromContext($context);
+        $log->medium = $medium;
+        $log->vendor = $vendor;
 
         $log->human_score = $humanScore;
         $log->page_rank = $pageRank;
@@ -319,7 +333,7 @@ SQL;
 
     public static function getDomainFromContext(array $context): ?string
     {
-        $domain = $context['site']['domain'] ?: null;
+        $domain = $context['site']['domain'] ?? null;
 
         if (!$domain || DomainReader::domain(config('app.serve_base_url')) === $domain) {
             return null;
@@ -391,7 +405,18 @@ SQL;
         if ($userId) {
             $this->user_id = Uuid::fromString($userId)->hex();
         }
-        $this->human_score = $userContext->humanScore();
+        if (
+            !$userId ||
+            (
+                MetaverseVendor::Decentraland->value === $this->vendor &&
+                MediumName::Metaverse->value === $this->medium &&
+                !isset($userContext->keywords()['user']['external_user_id'])
+            )
+        ) {
+            $this->human_score = 0.0;
+        } else {
+            $this->human_score = $userContext->humanScore();
+        }
         $this->page_rank = $userContext->pageRank();
         $this->our_userdata = $userContext->keywords();
     }
