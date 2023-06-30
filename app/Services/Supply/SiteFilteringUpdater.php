@@ -70,16 +70,8 @@ class SiteFilteringUpdater
             $siteExcludes[self::INTERNAL_CLASSIFIER_NAMESPACE][] = $excludeKeyword->keyword();
         }
 
-        $baseRequires = json_decode(config('app.site_filtering_require') ?? '', true);
-        if (is_array($baseRequires)) {
-            $siteRequires = array_merge_recursive($siteRequires, $baseRequires);
-        }
-
-        $baseExcludes = json_decode(config('app.site_filtering_exclude') ?? '', true);
-        if (is_array($baseExcludes)) {
-            $siteExcludes = array_merge_recursive($siteExcludes, $baseExcludes);
-        }
-
+        $siteRequires = array_merge_recursive($siteRequires, config('app.site_filtering_require'));
+        $siteExcludes = array_merge_recursive($siteExcludes, config('app.site_filtering_exclude'));
         if(config('app.reviewer_user_id')){
             $requireKeywords = $this->getClassificationForRejectedBannersForAllSites(intval(config('app.reviewer_user_id')));
             foreach ($requireKeywords as $requireKeyword) {
